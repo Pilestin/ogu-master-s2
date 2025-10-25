@@ -6,3 +6,4 @@
 *.parquet
 __pycache__/
 Data Mining/data_notprocessed/
+/Data Analysis and Statistics/final-project-online-shoppers-intention.ipynb
