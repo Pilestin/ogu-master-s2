@@ -290,7 +290,7 @@ IQR (Interquartile Range) yöntemi kullanılarak aykırı değerler tespit edilm
 
 Z-Score > 3 veya Z-Score < -3 değerleri extreme outlier olarak kabul edilmiştir.
 
-| Değişken | Extreme Outliers (|Z|>3) | Yüzde |
+| Değişken | Extreme Outliers (Z>3) | Yüzde |
 |----------|-------------------------|-------|
 | age | 0-2 | <1% |
 | trestbps | 1-3 | ~1% |

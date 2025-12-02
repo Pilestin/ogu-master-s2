@@ -48,6 +48,15 @@ def load_and_explore_data(file_path):
     
     df = pd.read_csv(file_path)
     
+    # Sadece Cleveland verisini filtrele
+    if 'dataset' in df.columns:
+        print(f"\n🔍 Veri seti filtreleme: Sadece Cleveland verileri kullanılıyor...")
+        original_count = len(df)
+        df = df[df['dataset'] == 'Cleveland'].copy()
+        print(f"   • Orijinal kayıt sayısı: {original_count}")
+        print(f"   • Cleveland kayıt sayısı: {len(df)}")
+        print(f"   • Filtrelenen kayıt: {original_count - len(df)}")
+    
     print(f"\n📊 Veri Seti Boyutları:")
     print(f"   • Toplam kayıt sayısı: {df.shape[0]}")
     print(f"   • Özellik sayısı: {df.shape[1]}")
