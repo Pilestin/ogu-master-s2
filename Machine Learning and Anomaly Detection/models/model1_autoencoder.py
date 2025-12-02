@@ -4,6 +4,7 @@ Derin öğrenme tabanlı autoencoder ile anomali tespiti
 """
 
 import os
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
@@ -11,6 +12,9 @@ from tensorflow import keras
 from tensorflow.keras import layers
 import cv2
 from sklearn.metrics import roc_auc_score, f1_score
+
+# Utils import
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from utils import (load_image, normalize_image, create_anomaly_map, 
                   calculate_metrics, plot_metrics, visualize_anomaly_detection,
                   save_model_results, preprocess_for_anomaly_detection)

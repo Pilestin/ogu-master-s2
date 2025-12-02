@@ -23,7 +23,7 @@ from utils import (load_image, calculate_metrics, plot_metrics,
 class PatchCoreModel:
     """PatchCore anomaly detection model"""
     
-    def __init__(self, backbone='wide_resnet50_2', memory_bank_size=1000, 
+    def __init__(self, backbone='wide_resnet50_2', memory_bank_size=250, 
                  reduce_dimensions=True, target_dim=550):
         self.backbone_name = backbone
         self.memory_bank_size = memory_bank_size
@@ -147,7 +147,7 @@ class PatchCoreModel:
         selected_features = [features[selected_indices[0]]]
         
         for i in range(1, k):
-            if i % 100 == 0:
+            if i:
                 print(f"Coreset progress: {i}/{k}")
             
             # Her nokta için en yakın seçili noktaya olan mesafeyi hesapla
