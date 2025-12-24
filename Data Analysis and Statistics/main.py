@@ -2,452 +2,416 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 from scipy import stats
-from scipy.stats import chi2_contingency
+
+# Sklearn imports
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, classification_report
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, ExtraTreesClassifier
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
+from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis, LinearDiscriminantAnalysis
+from sklearn.feature_selection import SelectFromModel
+
+# Imbalanced-learn imports
+from imblearn.over_sampling import SMOTE
+
+# Boosting imports
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
+from catboost import CatBoostClassifier
+
+# Deep Learning imports
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, InputLayer, BatchNormalization, Dropout
+import torch
+from pytorch_tabnet.tab_model import TabNetClassifier
+
+# Suppress warnings
 import warnings
 warnings.filterwarnings('ignore')
 
-# Türkçe karakter desteği için
-plt.rcParams['font.sans-serif'] = ['DejaVu Sans']
-plt.rcParams['axes.unicode_minus'] = False
+def load_data(filepath):
+    """Veri setini yükler."""
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Dosya bulunamadı: {filepath}")
+    df = pd.read_csv(filepath)
+    print("Dataset loaded successfully.")
+    return df
 
-# Görselleştirme ayarları
-sns.set_style("whitegrid")
-sns.set_palette("husl")
-plt.rcParams['figure.figsize'] = (15, 10)
+def preprocess_data(df):
+    """Veri ön işleme adımlarını gerçekleştirir."""
+    df_processed = df.copy()
 
-# Veri setini yükle
-df = pd.read_csv('data/online_shoppers_intention.csv')
+    # 1. 'Revenue' ve 'Weekend' boolean sütunlarını sayısal değerlere dönüştürün
+    df_processed['Revenue'] = df_processed['Revenue'].astype(int)
+    df_processed['Weekend'] = df_processed['Weekend'].astype(int)
 
-# Kategorik olması gereken numeric sütunları dönüştür
-# OperatingSystems, Browser, Region, TrafficType aslında kategorik değişkenler
-categorical_as_numeric = ['OperatingSystems', 'Browser', 'Region', 'TrafficType']
-for col in categorical_as_numeric:
-    df[col] = df[col].astype(str)
+    # 2. 'Month' ve 'VisitorType' gibi kategorik sütunları one-hot encoding kullanarak sayısal temsilcilere dönüştürün
+    df_processed = pd.get_dummies(df_processed, columns=['Month', 'VisitorType'], drop_first=True)
 
-# Çıktı klasörünü oluştur
-import os
-output_dir = 'analysis_output'
-if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
+    print("Veri ön işleme tamamlandı.")
+    return df_processed
 
-print("=" * 80)
-print("ONLINE SHOPPERS INTENTION VERİ SETİ ANALİZİ")
-print("=" * 80)
-
-
-
-
-# ============================================================================
-# 1. GENEL VERİ İNCELEMESİ
-# ============================================================================
-print("\n" + "=" * 80)
-print("1. GENEL VERİ BİLGİLERİ")
-print("=" * 80)
-
-print(f"\nVeri Seti Boyutu: {df.shape[0]} satır, {df.shape[1]} sütun")
-print(f"\nToplam Hücre Sayısı: {df.shape[0] * df.shape[1]:,}")
-print(f"Bellek Kullanımı: {df.memory_usage(deep=True).sum() / 1024**2:.2f} MB")
-
-print("\n" + "-" * 80)
-print("Sütun Bilgileri:")
-print("-" * 80)
-print(df.info())
-
-print("\n" + "-" * 80)
-print("İlk 5 Satır:")
-print("-" * 80)
-print(df.head())
-
-print("\n" + "-" * 80)
-print("Veri Tipleri Dağılımı:")
-print("-" * 80)
-print(df.dtypes.value_counts())
-
-# ============================================================================
-# 2. EKSİK VERİ ANALİZİ
-# ============================================================================
-print("\n" + "=" * 80)
-print("2. EKSİK VERİ ANALİZİ")
-print("=" * 80)
-
-missing_data = pd.DataFrame({
-    'Sütun': df.columns,
-    'Eksik Değer': df.isnull().sum(),
-    'Yüzde (%)': (df.isnull().sum() / len(df)) * 100
-})
-missing_data = missing_data[missing_data['Eksik Değer'] > 0].sort_values('Eksik Değer', ascending=False)
-
-if len(missing_data) > 0:
-    print("\nEksik Değerler:")
-    print(missing_data.to_string(index=False))
-else:
-    print("\n✓ Veri setinde eksik değer bulunmamaktadır!")
-
-# ============================================================================
-# 3. NUMERİK DEĞİŞKENLER ANALİZİ
-# ============================================================================
-print("\n" + "=" * 80)
-print("3. NUMERİK DEĞİŞKENLER - TANIMLAYICI İSTATİSTİKLER")
-print("=" * 80)
-
-numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-print(f"\nNumerik Sütun Sayısı: {len(numeric_cols)}")
-print(f"Numerik Sütunlar: {', '.join(numeric_cols)}")
-
-print("\n" + "-" * 80)
-print("Temel İstatistikler:")
-print("-" * 80)
-print(df[numeric_cols].describe().T)
-
-print("\n" + "-" * 80)
-print("İlave İstatistikler:")
-print("-" * 80)
-additional_stats = pd.DataFrame({
-    'Varyans': df[numeric_cols].var(),
-    'Çarpıklık (Skewness)': df[numeric_cols].skew(),
-    'Basıklık (Kurtosis)': df[numeric_cols].kurtosis(),
-    'Medyan': df[numeric_cols].median()
-})
-print(additional_stats)
-
-# ============================================================================
-# 4. KATEGORİK DEĞİŞKENLER ANALİZİ
-# ============================================================================
-print("\n" + "=" * 80)
-print("4. KATEGORİK DEĞİŞKENLER ANALİZİ")
-print("=" * 80)
-
-categorical_cols = df.select_dtypes(include=['object', 'bool']).columns.tolist()
-print(f"\nKategorik Sütun Sayısı: {len(categorical_cols)}")
-print(f"Kategorik Sütunlar: {', '.join(categorical_cols)}")
-
-for col in categorical_cols:
-    print("\n" + "-" * 80)
-    print(f"{col} - Dağılım:")
-    print("-" * 80)
-    value_counts = df[col].value_counts()
-    value_percentages = df[col].value_counts(normalize=True) * 100
+def perform_hypothesis_testing(df):
+    """
+    Veri seti üzerinde hipotez testleri uygular.
+    Numerik değişkenler için T-Testi, Kategorik değişkenler için Chi-Square testi.
+    """
+    print("\n--- Hipotez Testleri Başlatılıyor ---")
     
-    result_df = pd.DataFrame({
-        'Değer': value_counts.index,
-        'Sayı': value_counts.values,
-        'Yüzde (%)': value_percentages.values
-    })
-    print(result_df.to_string(index=False))
+    target = 'Revenue'
+    if target not in df.columns:
+        print("Hedef değişken bulunamadı.")
+        return
 
-# ============================================================================
-# 5. HEDEF DEĞİŞKEN (REVENUE) ANALİZİ
-# ============================================================================
-print("\n" + "=" * 80)
-print("5. HEDEF DEĞİŞKEN ANALİZİ - REVENUE")
-print("=" * 80)
+    # Grupları ayır
+    group_true = df[df[target] == 1]
+    group_false = df[df[target] == 0]
 
-revenue_counts = df['Revenue'].value_counts()
-revenue_pct = df['Revenue'].value_counts(normalize=True) * 100
+    print(f"Grup True (Revenue=1) Sayısı: {len(group_true)}")
+    print(f"Grup False (Revenue=0) Sayısı: {len(group_false)}")
 
-print("\nRevenue Dağılımı:")
-for val, count, pct in zip(revenue_counts.index, revenue_counts.values, revenue_pct.values):
-    print(f"  {val}: {count} ({pct:.2f}%)")
+    # Sütun tiplerini belirle
+    numeric_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    # Revenue ve one-hot encoded olmayan kategorik sütunları çıkar (eğer varsa)
+    numeric_cols = [c for c in numeric_cols if c != target and 'Month' not in c and 'VisitorType' not in c] 
+    
+    # One-hot encoded sütunları kategorik olarak kabul edebiliriz ama orijinal halleri yoksa
+    # binary oldukları için Chi-Square uygundur.
+    # Ancak burada df_processed geldiği için one-hot sütunlar var.
+    # Biz sadece temel numeriklere bakalım: Administrative, Administrative_Duration, etc.
+    
+    basic_numeric_cols = [
+        'Administrative', 'Administrative_Duration', 'Informational', 'Informational_Duration',
+        'ProductRelated', 'ProductRelated_Duration', 'BounceRates', 'ExitRates', 'PageValues', 'SpecialDay'
+    ]
+    
+    print("\n1. Numerik Değişkenler için T-Testi (Bağımsız Örneklem):")
+    print(f"{'Değişken':<30} | {'T-Statistic':<12} | {'P-Value':<12} | {'Sonuç'}")
+    print("-" * 70)
+    
+    for col in basic_numeric_cols:
+        if col in df.columns:
+            stat, p_value = stats.ttest_ind(group_true[col], group_false[col], equal_var=False)
+            significance = "Anlamlı Fark Var (H0 Red)" if p_value < 0.05 else "Fark Yok (H0 Kabul)"
+            print(f"{col:<30} | {stat:.4f}       | {p_value:.4e}   | {significance}")
 
-print(f"\nSınıf Dengesi Oranı: {revenue_counts.min() / revenue_counts.max():.4f}")
-print(f"Not: 1'e yakın değer dengeli, 0'a yakın değer dengesiz veri setini gösterir.")
+    print("\n2. Kategorik/Binary Değişkenler için Chi-Square Testi:")
+    # Weekend ve One-Hot encoded sütunlar
+    categorical_cols = ['Weekend'] + [c for c in df.columns if 'Month_' in c or 'VisitorType_' in c]
+    
+    print(f"{'Değişken':<30} | {'Chi2 Stat':<12} | {'P-Value':<12} | {'Sonuç'}")
+    print("-" * 70)
+    
+    for col in categorical_cols:
+        if col in df.columns:
+            contingency_table = pd.crosstab(df[col], df[target])
+            stat, p, dof, expected = stats.chi2_contingency(contingency_table)
+            significance = "Bağımlı (H0 Red)" if p < 0.05 else "Bağımsız (H0 Kabul)"
+            print(f"{col:<30} | {stat:.4f}       | {p:.4e}   | {significance}")
+            
+    print("--- Hipotez Testleri Tamamlandı ---\n")
 
-# ============================================================================
-# 6. KORELASYON ANALİZİ
-# ============================================================================
-print("\n" + "=" * 80)
-print("6. KORELASYON ANALİZİ")
-print("=" * 80)
+def perform_feature_selection(X_train, y_train, X_test):
+    """
+    Random Forest kullanarak özellik seçimi yapar.
+    """
+    print("\n--- Özellik Seçimi (Feature Selection) Başlatılıyor ---")
+    print(f"Orijinal Özellik Sayısı: {X_train.shape[1]}")
+    
+    # Özellik seçimi için temel bir model kullan
+    selector_model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1)
+    selector_model.fit(X_train, y_train)
+    
+    # Özellik önemlerini al
+    importances = selector_model.feature_importances_
+    feature_names = X_train.columns
+    
+    # Önem derecelerini göster
+    feature_imp_df = pd.DataFrame({'Feature': feature_names, 'Importance': importances}).sort_values(by='Importance', ascending=False)
+    print("\nEn Önemli 10 Özellik:")
+    print(feature_imp_df.head(10))
+    
+    # SelectFromModel ile seçim yap (mean değerinden yüksek olanları seç)
+    selector = SelectFromModel(selector_model, threshold='mean', prefit=True)
+    X_train_selected = selector.transform(X_train)
+    X_test_selected = selector.transform(X_test)
+    
+    selected_features = feature_names[selector.get_support()]
+    print(f"\nSeçilen Özellik Sayısı: {X_train_selected.shape[1]}")
+    print(f"Seçilen Özellikler: {list(selected_features)}")
+    
+    # DataFrame formatını korumak için (sütun isimleri kaybolmasın diye)
+    X_train_selected_df = pd.DataFrame(X_train_selected, columns=selected_features, index=X_train.index)
+    X_test_selected_df = pd.DataFrame(X_test_selected, columns=selected_features, index=X_test.index)
+    
+    print("--- Özellik Seçimi Tamamlandı ---\n")
+    return X_train_selected_df, X_test_selected_df
 
-# Revenue'yu numerik hale getir
-df_corr = df.copy()
-df_corr['Revenue'] = df_corr['Revenue'].map({'TRUE': 1, 'False': 0, True: 1, False: 0})
+def apply_smote(X_train, y_train):
+    """
+    SMOTE (Synthetic Minority Over-sampling Technique) uygulayarak veri dengesizliğini giderir.
+    """
+    print("\n--- SMOTE ile Veri Dengeleme Başlatılıyor ---")
+    print("Önceki Sınıf Dağılımı:")
+    print(y_train.value_counts())
+    
+    smote = SMOTE(random_state=42)
+    X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)
+    
+    print("\nSonraki Sınıf Dağılımı:")
+    print(y_train_resampled.value_counts())
+    print("--- SMOTE Tamamlandı ---\n")
+    
+    return X_train_resampled, y_train_resampled
 
-correlation_matrix = df_corr[numeric_cols + ['Revenue']].corr()
+def perform_clustering(df_processed):
+    """K-Means kümeleme işlemini gerçekleştirir."""
+    print("Kümeleme işlemi başlatılıyor...")
+    
+    # 1. Hedef değişken 'Revenue' hariç tüm özelliklerden oluşan bir DataFrame oluşturun
+    X_cluster = df_processed.drop('Revenue', axis=1)
 
-print("\nRevenue ile En Yüksek Korelasyona Sahip Değişkenler:")
-print("-" * 80)
-revenue_corr = correlation_matrix['Revenue'].drop('Revenue').sort_values(ascending=False)
-print(revenue_corr)
+    # 2. X_cluster verisini standartlaştırın
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X_cluster)
 
-print("\n\nEn Yüksek Korelasyonlar (Revenue Hariç):")
-print("-" * 80)
-# Üst üçgen matrisi al
-mask = np.triu(np.ones_like(correlation_matrix, dtype=bool), k=1)
-corr_pairs = correlation_matrix.where(mask).stack().sort_values(ascending=False)
-print(corr_pairs.head(10))
+    # 3. Seçilen optimal küme sayısını (örneğin 4) kullanarak KMeans modelini eğitin
+    optimal_k = 4 
+    kmeans = KMeans(n_clusters=optimal_k, init='k-means++', random_state=42, n_init=10)
+    clusters = kmeans.fit_predict(X_scaled)
+    
+    df_clustered = df_processed.copy()
+    df_clustered['Cluster'] = clusters
 
-# ============================================================================
-# 7. GÖRSELLEŞTİRMELER
-# ============================================================================
-print("\n" + "=" * 80)
-print("7. GÖRSELLEŞTİRMELER OLUŞTURULUYOR...")
-print("=" * 80)
+    print(f"K-Means clustering completed with {optimal_k} clusters.")
+    print("Cluster distribution:")
+    print(df_clustered['Cluster'].value_counts())
+    
+    return df_clustered
 
-# 7.1. Korelasyon Matrisi Heatmap
-plt.figure(figsize=(16, 14))
-sns.heatmap(correlation_matrix, annot=True, fmt='.2f', cmap='coolwarm', 
-            center=0, square=True, linewidths=1, cbar_kws={"shrink": 0.8})
-plt.title('Korelasyon Matrisi - Tüm Numerik Değişkenler', fontsize=16, fontweight='bold', pad=20)
-plt.tight_layout()
-plt.savefig(f'{output_dir}/01_correlation_matrix.png', dpi=300, bbox_inches='tight')
-print("✓ Korelasyon matrisi kaydedildi: 01_correlation_matrix.png")
-plt.close()
+def get_data_splits(df_processed):
+    """Veriyi eğitim ve test setlerine ayırır."""
+    # Not: Notebook'ta kümeleme yapıldıktan sonra 'Cluster' sütunu eğitim verisinden çıkarılıyor.
+    # Eğer df_processed içinde 'Cluster' varsa çıkaralım.
+    
+    drop_cols = ['Revenue']
+    if 'Cluster' in df_processed.columns:
+        drop_cols.append('Cluster')
+        
+    X = df_processed.drop(drop_cols, axis=1)
+    y = df_processed['Revenue']
 
-# 7.2. Revenue Dağılımı
-fig, axes = plt.subplots(1, 2, figsize=(15, 5))
+    # Stratifiye edilmiş bölme
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
 
-# Pie chart
-revenue_counts.plot(kind='pie', ax=axes[0], autopct='%1.1f%%', startangle=90, 
-                    colors=['#ff9999', '#66b3ff'])
-axes[0].set_title('Revenue Dağılımı (Pie Chart)', fontsize=14, fontweight='bold')
-axes[0].set_ylabel('')
+    print("Veri eğitim ve test setlerine ayrıldı.")
+    print(f"X_train boyutu: {X_train.shape}, y_train boyutu: {y_train.shape}")
+    print(f"X_test boyutu: {X_test.shape}, y_test boyutu: {y_test.shape}")
+    
+    return X_train, X_test, y_train, y_test
 
-# Bar chart
-revenue_counts.plot(kind='bar', ax=axes[1], color=['#ff9999', '#66b3ff'])
-axes[1].set_title('Revenue Dağılımı (Bar Chart)', fontsize=14, fontweight='bold')
-axes[1].set_xlabel('Revenue', fontsize=12)
-axes[1].set_ylabel('Frekans', fontsize=12)
-axes[1].tick_params(axis='x', rotation=0)
+def evaluate_model(name, y_test, y_pred, y_pred_proba=None):
+    """Model performansını değerlendirir ve sonuçları döndürür."""
+    accuracy = accuracy_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, zero_division=0)
+    recall = recall_score(y_test, y_pred)
+    f1 = f1_score(y_test, y_pred)
+    
+    roc_auc = 0
+    if y_pred_proba is not None:
+        try:
+            roc_auc = roc_auc_score(y_test, y_pred_proba)
+        except ValueError:
+            roc_auc = 0
 
-plt.tight_layout()
-plt.savefig(f'{output_dir}/02_revenue_distribution.png', dpi=300, bbox_inches='tight')
-print("✓ Revenue dağılımı kaydedildi: 02_revenue_distribution.png")
-plt.close()
+    print(f"\n----- {name} Performans Metrikleri -----")
+    print(f"Accuracy: {accuracy:.4f}")
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall: {recall:.4f}")
+    print(f"F1-Score: {f1:.4f}")
+    print(f"ROC AUC: {roc_auc:.4f}")
+    
+    return {
+        "Accuracy": accuracy,
+        "Precision": precision,
+        "Recall": recall,
+        "F1-Score": f1,
+        "ROC AUC": roc_auc
+    }
 
-# 7.3. Numerik Değişkenlerin Dağılımları
-n_cols = 4
-n_rows = int(np.ceil(len(numeric_cols) / n_cols))
-fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, n_rows * 4))
-axes = axes.flatten()
+def train_ml_models(X_train, y_train, X_test, y_test):
+    """Klasik makine öğrenimi modellerini eğitir ve değerlendirir."""
+    results = {}
+    
+    models = {
+        "Logistic Regression": LogisticRegression(random_state=42, solver='liblinear'),
+        "Decision Tree": DecisionTreeClassifier(random_state=42),
+        "Random Forest": RandomForestClassifier(random_state=42),
+        "Gradient Boosting": GradientBoostingClassifier(random_state=42),
+        "XGBoost": XGBClassifier(random_state=42, use_label_encoder=False, eval_metric='logloss'),
+        "LightGBM": LGBMClassifier(random_state=42, verbose=-1),
+        "CatBoost": CatBoostClassifier(random_state=42, verbose=0, iterations=100),
+        "K-Nearest Neighbors": KNeighborsClassifier()
+    }
 
-for idx, col in enumerate(numeric_cols):
-    axes[idx].hist(df[col].dropna(), bins=50, color='skyblue', edgecolor='black', alpha=0.7)
-    axes[idx].set_title(f'{col}\nMean: {df[col].mean():.2f}, Median: {df[col].median():.2f}', 
-                       fontsize=10, fontweight='bold')
-    axes[idx].set_xlabel(col, fontsize=9)
-    axes[idx].set_ylabel('Frekans', fontsize=9)
-    axes[idx].grid(axis='y', alpha=0.3)
+    # SVM Özel durumu (olasılık ve parametreler)
+    print("\nEğitiliyor: SVM (RBF kernel)...")
+    svm_model = SVC(kernel="rbf", C=10, gamma=0.1, class_weight="balanced", probability=True, random_state=42)
+    svm_model.fit(X_train, y_train)
+    y_pred_proba_svm = svm_model.predict_proba(X_test)[:, 1]
+    y_pred_svm = (y_pred_proba_svm >= 0.3).astype(int) # Threshold 0.3
+    results["SVM (RBF kernel)"] = evaluate_model("SVM (RBF kernel)", y_test, y_pred_svm, y_pred_proba_svm)
 
-# Boş grafikleri gizle
-for idx in range(len(numeric_cols), len(axes)):
-    axes[idx].axis('off')
+    for name, model in models.items():
+        print(f"\nEğitiliyor: {name}...")
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_test)
+        
+        y_pred_proba = None
+        if hasattr(model, "predict_proba"):
+            y_pred_proba = model.predict_proba(X_test)[:, 1]
+            
+        results[name] = evaluate_model(name, y_test, y_pred, y_pred_proba)
+        
+    return results
 
-plt.suptitle('Numerik Değişkenlerin Dağılımları', fontsize=16, fontweight='bold', y=1.00)
-plt.tight_layout()
-plt.savefig(f'{output_dir}/03_numeric_distributions.png', dpi=300, bbox_inches='tight')
-print("✓ Numerik dağılımlar kaydedildi: 03_numeric_distributions.png")
-plt.close()
+def train_dl_models(X_train, y_train, X_test, y_test):
+    """Derin öğrenme modellerini (Keras MLP ve TabNet) eğitir ve değerlendirir."""
+    results = {}
+    
+    # Veriyi ölçeklendirme (DL modelleri için önemli)
+    scaler_dl = StandardScaler()
+    X_train_scaled = scaler_dl.fit_transform(X_train)
+    X_test_scaled = scaler_dl.transform(X_test)
+    
+    # --- Keras MLP Model ---
+    print("\nEğitiliyor: Enhanced Deep Learning (Keras)...")
+    model_enhanced = Sequential([
+        InputLayer(input_shape=(X_train_scaled.shape[1],)),
+        Dense(64, activation='relu'),
+        BatchNormalization(),
+        Dropout(0.3),
+        Dense(32, activation='relu'),
+        BatchNormalization(),
+        Dropout(0.2),
+        Dense(16, activation='relu'),
+        BatchNormalization(),
+        Dense(8, activation='relu'),
+        BatchNormalization(),
+        Dropout(0.1),
+        Dense(1, activation='sigmoid')
+    ])
+    
+    model_enhanced.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    
+    model_enhanced.fit(
+        X_train_scaled, y_train,
+        epochs=25,
+        batch_size=16,
+        validation_data=(X_test_scaled, y_test),
+        verbose=0 # Çıktıyı temiz tutmak için 0
+    )
+    
+    y_pred_proba_dl = model_enhanced.predict(X_test_scaled, verbose=0)
+    y_pred_dl = (y_pred_proba_dl > 0.5).astype(int).flatten()
+    y_pred_proba_dl = y_pred_proba_dl.flatten()
+    
+    results["Enhanced Deep Learning"] = evaluate_model("Enhanced Deep Learning", y_test, y_pred_dl, y_pred_proba_dl)
+    
+    # --- TabNet Model ---
+    print("\nEğitiliyor: TabNet...")
+    tabnet_model = TabNetClassifier(
+        n_d=16, n_a=16, n_steps=5, gamma=1.5,
+        n_independent=2, n_shared=2,
+        optimizer_fn=torch.optim.Adam,
+        optimizer_params=dict(lr=2e-2),
+        mask_type='entmax',
+        seed=42,
+        verbose=0
+    )
+    
+    tabnet_model.fit(
+        X_train_scaled,
+        y_train.values,
+        eval_set=[(X_test_scaled, y_test.values)],
+        eval_metric=['auc'],
+        max_epochs=200,
+        patience=20,
+        batch_size=1024,
+        virtual_batch_size=128,
+        num_workers=0,
+        drop_last=False
+    )
+    
+    y_pred_tabnet = tabnet_model.predict(X_test_scaled)
+    y_pred_proba_tabnet = tabnet_model.predict_proba(X_test_scaled)[:, 1]
+    
+    results["TabNet"] = evaluate_model("TabNet", y_test, y_pred_tabnet, y_pred_proba_tabnet)
+    
+    return results
 
-# 7.4. Box Plot - Aykırı Değer Analizi
-fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, n_rows * 4))
-axes = axes.flatten()
+def main():
+    # Dosya yolu
+    # Scriptin bulunduğu dizine göre data klasörünü bul
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    dataset_path = os.path.join(script_dir, "data", "online_shoppers_intention.csv")
+    
+    print(f"Veri seti yolu: {dataset_path}")
+    
+    # 1. Veri Yükleme
+    try:
+        df = load_data(dataset_path)
+    except Exception as e:
+        print(f"Hata: {e}")
+        return
 
-for idx, col in enumerate(numeric_cols):
-    axes[idx].boxplot(df[col].dropna(), vert=True, patch_artist=True,
-                     boxprops=dict(facecolor='lightblue', alpha=0.7),
-                     medianprops=dict(color='red', linewidth=2))
-    axes[idx].set_title(f'{col}', fontsize=10, fontweight='bold')
-    axes[idx].set_ylabel('Değer', fontsize=9)
-    axes[idx].grid(axis='y', alpha=0.3)
+    # 2. Ön İşleme
+    df_processed = preprocess_data(df)
+    
+    # 3. Hipotez Testleri (YENİ)
+    perform_hypothesis_testing(df_processed)
+    
+    # 4. Kümeleme (Analiz amaçlı)
+    df_clustered = perform_clustering(df_processed)
+    
+    # 5. Veri Bölme
+    X_train, X_test, y_train, y_test = get_data_splits(df_clustered)
+    
+    # 6. Özellik Seçimi (YENİ)
+    X_train_selected, X_test_selected = perform_feature_selection(X_train, y_train, X_test)
+    
+    # 7. Dengesiz Veri Yönetimi - SMOTE (YENİ)
+    # Not: SMOTE sadece eğitim setine uygulanır!
+    X_train_resampled, y_train_resampled = apply_smote(X_train_selected, y_train)
+    
+    print("\n--- Model Eğitimi Başlıyor (Seçilmiş Özellikler ve SMOTE ile) ---")
+    
+    # 8. ML Modelleri
+    ml_results = train_ml_models(X_train_resampled, y_train_resampled, X_test_selected, y_test)
+    
+    # 9. DL Modelleri
+    dl_results = train_dl_models(X_train_resampled, y_train_resampled, X_test_selected, y_test)
+    
+    # 10. Sonuçları Birleştirme ve Gösterme
+    all_results = {**ml_results, **dl_results}
+    
+    results_df = pd.DataFrame(all_results).T
+    print("\n\n==================================================")
+    print("TÜM MODELLERİN PERFORMANS SONUÇLARI (SMOTE + Feature Selection)")
+    print("==================================================")
+    print(results_df)
+    
+    # Sonuçları CSV olarak kaydetmek isterseniz:
+    # results_df.to_csv(os.path.join(script_dir, "model_comparison_results_improved.csv"))
 
-# Boş grafikleri gizle
-for idx in range(len(numeric_cols), len(axes)):
-    axes[idx].axis('off')
-
-plt.suptitle('Box Plot - Aykırı Değer Analizi', fontsize=16, fontweight='bold', y=1.00)
-plt.tight_layout()
-plt.savefig(f'{output_dir}/04_boxplots.png', dpi=300, bbox_inches='tight')
-print("✓ Box plotlar kaydedildi: 04_boxplots.png")
-plt.close()
-
-# 7.5. Kategorik Değişkenlerin Dağılımları
-n_cat = len(categorical_cols)
-n_cols_cat = 3
-n_rows_cat = int(np.ceil(n_cat / n_cols_cat))
-fig, axes = plt.subplots(n_rows_cat, n_cols_cat, figsize=(18, n_rows_cat * 5))
-axes = axes.flatten() if n_cat > 1 else [axes]
-
-for idx, col in enumerate(categorical_cols):
-    value_counts = df[col].value_counts()
-    axes[idx].bar(range(len(value_counts)), value_counts.values, color='coral', alpha=0.7)
-    axes[idx].set_title(f'{col}', fontsize=12, fontweight='bold')
-    axes[idx].set_xlabel('Kategori', fontsize=10)
-    axes[idx].set_ylabel('Frekans', fontsize=10)
-    axes[idx].set_xticks(range(len(value_counts)))
-    axes[idx].set_xticklabels(value_counts.index, rotation=45, ha='right')
-    axes[idx].grid(axis='y', alpha=0.3)
-
-# Boş grafikleri gizle
-for idx in range(len(categorical_cols), len(axes)):
-    axes[idx].axis('off')
-
-plt.suptitle('Kategorik Değişkenlerin Dağılımları', fontsize=16, fontweight='bold', y=1.00)
-plt.tight_layout()
-plt.savefig(f'{output_dir}/05_categorical_distributions.png', dpi=300, bbox_inches='tight')
-print("✓ Kategorik dağılımlar kaydedildi: 05_categorical_distributions.png")
-plt.close()
-
-# 7.6. Revenue'ya Göre Numerik Değişkenlerin Karşılaştırması (Önemli olanlar)
-important_numeric = ['PageValues', 'ProductRelated_Duration', 'ProductRelated', 
-                     'BounceRates', 'ExitRates', 'Administrative_Duration']
-
-fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-axes = axes.flatten()
-
-for idx, col in enumerate(important_numeric):
-    df_corr.boxplot(column=col, by='Revenue', ax=axes[idx], patch_artist=True)
-    axes[idx].set_title(f'{col} vs Revenue', fontsize=11, fontweight='bold')
-    axes[idx].set_xlabel('Revenue', fontsize=10)
-    axes[idx].set_ylabel(col, fontsize=10)
-    plt.sca(axes[idx])
-    plt.xticks([1, 2], ['FALSE', 'TRUE'])
-
-plt.suptitle('Revenue\'ya Göre Önemli Numerik Değişkenlerin Karşılaştırması', 
-             fontsize=16, fontweight='bold', y=1.00)
-plt.tight_layout()
-plt.savefig(f'{output_dir}/06_revenue_comparison.png', dpi=300, bbox_inches='tight')
-print("✓ Revenue karşılaştırması kaydedildi: 06_revenue_comparison.png")
-plt.close()
-
-# 7.7. Ay ve Visitor Type'a Göre Revenue Analizi
-fig, axes = plt.subplots(1, 2, figsize=(18, 6))
-
-# Month vs Revenue
-month_revenue = pd.crosstab(df['Month'], df['Revenue'], normalize='index') * 100
-month_revenue.plot(kind='bar', ax=axes[0], color=['#ff9999', '#66b3ff'])
-axes[0].set_title('Aylara Göre Revenue Dağılımı (%)', fontsize=13, fontweight='bold')
-axes[0].set_xlabel('Ay', fontsize=11)
-axes[0].set_ylabel('Yüzde (%)', fontsize=11)
-axes[0].legend(['FALSE', 'TRUE'], title='Revenue')
-axes[0].tick_params(axis='x', rotation=45)
-
-# VisitorType vs Revenue
-visitor_revenue = pd.crosstab(df['VisitorType'], df['Revenue'], normalize='index') * 100
-visitor_revenue.plot(kind='bar', ax=axes[1], color=['#ff9999', '#66b3ff'])
-axes[1].set_title('Ziyaretçi Tipine Göre Revenue Dağılımı (%)', fontsize=13, fontweight='bold')
-axes[1].set_xlabel('Ziyaretçi Tipi', fontsize=11)
-axes[1].set_ylabel('Yüzde (%)', fontsize=11)
-axes[1].legend(['FALSE', 'TRUE'], title='Revenue')
-axes[1].tick_params(axis='x', rotation=45)
-
-plt.tight_layout()
-plt.savefig('output_categorical_revenue_analysis.png', dpi=300, bbox_inches='tight')
-print("✓ Kategorik revenue analizi kaydedildi: output_categorical_revenue_analysis.png")
-plt.close()
-
-# 7.8. Pair Plot - Önemli Değişkenler Arası İlişkiler
-selected_features = ['PageValues', 'ExitRates', 'BounceRates', 'ProductRelated_Duration', 'Revenue']
-pairplot_data = df_corr[selected_features].copy()
-
-plt.figure(figsize=(15, 15))
-sns.pairplot(pairplot_data, hue='Revenue', palette={0: '#ff9999', 1: '#66b3ff'}, 
-             plot_kws={'alpha': 0.6}, diag_kind='kde', corner=False)
-plt.suptitle('Önemli Değişkenler Arası İlişkiler (Pair Plot)', 
-             fontsize=16, fontweight='bold', y=1.00)
-plt.savefig('output_pairplot.png', dpi=300, bbox_inches='tight')
-print("✓ Pair plot kaydedildi: output_pairplot.png")
-plt.close()
-
-# ============================================================================
-# 8. İSTATİSTİKSEL TESTLER
-# ============================================================================
-print("\n" + "=" * 80)
-print("8. İSTATİSTİKSEL TESTLER")
-print("=" * 80)
-
-# 8.1. Chi-Square Test - Kategorik değişkenler için
-print("\nChi-Square Testi (Kategorik Değişkenler vs Revenue):")
-print("-" * 80)
-
-for col in ['Month', 'VisitorType', 'Weekend']:
-    contingency_table = pd.crosstab(df[col], df['Revenue'])
-    chi2, p_value, dof, expected = chi2_contingency(contingency_table)
-    print(f"\n{col}:")
-    print(f"  Chi2 İstatistiği: {chi2:.4f}")
-    print(f"  P-değeri: {p_value:.6f}")
-    print(f"  Serbestlik Derecesi: {dof}")
-    if p_value < 0.05:
-        print(f"  ✓ {col} ile Revenue arasında istatistiksel olarak anlamlı bir ilişki VAR (p < 0.05)")
-    else:
-        print(f"  ✗ {col} ile Revenue arasında istatistiksel olarak anlamlı bir ilişki YOK (p >= 0.05)")
-
-# 8.2. T-Test - Numerik değişkenler için
-print("\n\nT-Testi (Numerik Değişkenler vs Revenue):")
-print("-" * 80)
-
-revenue_true = df_corr[df_corr['Revenue'] == 1]
-revenue_false = df_corr[df_corr['Revenue'] == 0]
-
-for col in important_numeric:
-    t_stat, p_value = stats.ttest_ind(revenue_true[col].dropna(), 
-                                       revenue_false[col].dropna())
-    print(f"\n{col}:")
-    print(f"  T İstatistiği: {t_stat:.4f}")
-    print(f"  P-değeri: {p_value:.6f}")
-    if p_value < 0.05:
-        print(f"  ✓ Revenue grupları arasında {col} için istatistiksel olarak anlamlı bir fark VAR (p < 0.05)")
-    else:
-        print(f"  ✗ Revenue grupları arasında {col} için istatistiksel olarak anlamlı bir fark YOK (p >= 0.05)")
-
-# ============================================================================
-# 9. ÖZET VE ÖNERİLER
-# ============================================================================
-print("\n" + "=" * 80)
-print("9. ANALİZ ÖZETİ VE ÖNEMLİ BULGULAR")
-print("=" * 80)
-
-true_key = 'TRUE' if 'TRUE' in revenue_pct.index else True
-false_key = 'FALSE' if 'FALSE' in revenue_pct.index else False
-
-print(f"""
-TEMEL BULGULAR:
---------------
-1. Veri Seti Yapısı:
-   - Toplam {df.shape[0]} gözlem, {df.shape[1]} değişken
-   - {len(numeric_cols)} numerik, {len(categorical_cols)} kategorik değişken
-   
-2. Hedef Değişken (Revenue):
-   - Dengesiz bir veri seti (sınıf oranları farklı)
-   - TRUE oranı: {revenue_pct[true_key]:.2f}%
-   - FALSE oranı: {revenue_pct[false_key]:.2f}%
-   
-3. En Önemli Özellikler (Revenue ile korelasyon):
-   - PageValues: En yüksek pozitif korelasyon
-   - ExitRates: Negatif korelasyon
-   - BounceRates: Negatif korelasyon
-   
-4. Zaman Bazlı Analiz:
-   - Belirli aylarda dönüşüm oranları değişiyor
-   - Weekend/Weekday farklılıkları gözlenebilir
-   
-5. Ziyaretçi Davranışı:
-   - Returning Visitor vs New Visitor farklılıkları önemli
-   - Ürün sayfalarında geçirilen süre kritik
-   
-ÖNERİLER:
----------
-• PageValues değişkeni en güçlü tahmin edici olabilir
-• Bounce ve Exit Rate'leri düşük tutmak önemli
-• Ziyaretçi tipine göre farklı stratejiler geliştirilebilir
-• Belirli ayların/günlerin özel kampanyalara uygun olabileceği görülüyor
-• Sınıf dengesizliği nedeniyle model eğitiminde dikkatli olunmalı
-
-OLUŞTURULAN GÖRSELLER:
---------------------
-✓ 01_correlation_matrix.png - Korelasyon matrisi
-✓ 02_revenue_distribution.png - Revenue dağılımı
-✓ 03_numeric_distributions.png - Numerik değişken dağılımları
-✓ 04_boxplots.png - Aykırı değer analizi
-✓ 05_categorical_distributions.png - Kategorik dağılımlar
-✓ 06_revenue_comparison.png - Revenue karşılaştırması
-✓ 07_categorical_revenue_analysis.png - Kategorik revenue analizi
-✓ 08_pairplot.png - Değişkenler arası ilişkiler
-""")
-
-print("\n" + "=" * 80)
-print("ANALİZ TAMAMLANDI!")
-print("=" * 80)
-print("\nTüm görseller ve istatistikler başarıyla oluşturuldu.")
-print("Görseller mevcut çalışma dizinine kaydedildi.\n")
+if __name__ == "__main__":
+    main()
