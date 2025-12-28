@@ -5,9 +5,8 @@
 
 *.parquet
 __pycache__/
-Data Mining/data_notprocessed/
-/Data Analysis and Statistics/final-project-online-shoppers-intention.ipynb
-/Data Analysis and Statistics/dataanalysisenv
-/Machine Learning and Anomaly Detection/dataset
-/Machine Learning and Anomaly Detection/old
-/Machine Learning and Anomaly Detection/yonerge.md
+data_mining/data_notprocessed/
+data_analysis/final-project-online-shoppers-intention.ipynb
+machine_learning_anomaly_detection/dataset
+machine_learning_anomaly_detection/old
+machine_learning_anomaly_detection/yonerge.md
