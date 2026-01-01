@@ -1,0 +1,26 @@
+============================================================
+TÜM MODELLER - EN İYİ PARAMETRELER
+(Aykırı Değerler Olduğu Gibi Bırakılmıştır)
+============================================================
+
+Logistic Regression:
+  C: 0.46314634988080006
+  penalty: l2
+
+Random Forest:
+  n_estimators: 65
+  max_depth: 4
+  min_samples_split: 7
+  min_samples_leaf: 4
+
+SVM:
+  C: 11.190312115744625
+  gamma: auto
+  kernel: rbf
+
+XGBoost:
+  n_estimators: 176
+  max_depth: 12
+  learning_rate: 0.14472875505549931
+  subsample: 0.7383923822293286
+  colsample_bytree: 0.6967221758975561

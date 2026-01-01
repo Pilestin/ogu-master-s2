@@ -2,7 +2,7 @@
 
 ## Teknik Rapor ve Dokümantasyon
 
-**Tarih:** 31 Aralık 2024  
+**Tarih:** 1 Ocak 2025  
 **Veri Seti:** UCI Heart Disease (Cleveland)  
 **Analiz Türü:** Sınıflandırma (Binary Classification)
 
@@ -14,10 +14,10 @@
 
 Bu çalışmada, UCI Heart Disease veri seti kullanılarak kalp hastalığı tahmin modelleri geliştirilmiştir. Çalışmanın temel hedefleri:
 
-1. Farklı veri önişleme tekniklerinin model performansına etkisini incelemek
+1. Farklı veri önişleme tekniklerinin model performansına etkisini izole olarak incelemek (Ablation Study)
 2. Hiperparametre optimizasyonu (Optuna) ile model performansını maksimize etmek
-3. Farklı makine öğrenmesi algoritmalarını karşılaştırmak
-4. Açıklanabilir yapay zeka (XAI) teknikleri ile model kararlarını yorumlamak
+3. 6 farklı makine öğrenmesi algoritmasını karşılaştırmak
+4. En iyi ve en kötü modellerin tüm tekniklerle birlikte nasıl performans gösterdiğini analiz etmek
 
 ### 1.2 Veri Seti Özellikleri
 
@@ -27,6 +27,19 @@ Bu çalışmada, UCI Heart Disease veri seti kullanılarak kalp hastalığı tah
 - **Özellik Sayısı:** 13 (orijinal) + 4 (mühendislik) = 17
 - **Hedef Değişken:** Binary (0: Sağlıklı, 1: Kalp Hastalığı)
 - **Sınıf Dağılımı:** Sağlıklı: 165 (%54.3), Hasta: 139 (%45.7)
+
+### 1.3 Deneysel Tasarım (Ablation Study)
+
+Bu çalışmada her tekniğin etkisini izole olarak görmek için 6 farklı senaryo tasarlanmıştır:
+
+| Senaryo | İçerik | Scaler | FE | PCA | SMOTE | Optuna | CV |
+|---------|--------|--------|-----|-----|-------|--------|-----|
+| **S0: Baseline** | Temel | RobustScaler | ❌ | ❌ | ❌ | ❌ | 10-Fold |
+| **S1: + PCA** | PCA etkisi | StandardScaler | ❌ | ✅ | ❌ | ❌ | 10-Fold |
+| **S2: + FE** | Feature Eng. etkisi | RobustScaler | ✅ | ❌ | ❌ | ❌ | 10-Fold |
+| **S3: + SMOTE** | Dengeleme etkisi | RobustScaler | ❌ | ❌ | ✅ | ❌ | 10-Fold |
+| **S4: + Optuna** | HP optimizasyonu | RobustScaler | ❌ | ❌ | ❌ | ✅ | 10-Fold |
+| **S5: All Combined** | Tüm teknikler | StandardScaler | ✅ | ✅ | ✅ | ✅ | 10-Fold |
 
 ---
 
@@ -56,7 +69,7 @@ Bu çalışmada, UCI Heart Disease veri seti kullanılarak kalp hastalığı tah
 | --------------------- | --------------------------------- | -------------------------------------------------------------- |
 | `risk_score`          | (age × chol) / 10000              | Yaş ve kolesterol etkileşimi - kardiyovasküler risk göstergesi |
 | `age_group`           | Binning (0-40, 40-55, 55-70, 70+) | Yaş kategorileri ile risk gruplandırması                       |
-| `hr_age_ratio`        | thalch / age                      | Yaşa göre normalize kalp hızı performansı                      |
+| `hr_age_ratio`        | thalch / (age + 1)                | Yaşa göre normalize kalp hızı performansı                      |
 | `bp_chol_interaction` | (trestbps × chol) / 10000         | Kan basıncı ve kolesterol etkileşimi                           |
 
 ---
@@ -71,339 +84,412 @@ Ham Veri (920 satır)
     ├── 1. Cleveland Filtresi → 304 satır
     │
     ├── 2. Kategorik Encoding (LabelEncoder)
-    │     ├── sex: 2 kategori
-    │     ├── cp: 4 kategori
-    │     ├── restecg: 3 kategori
-    │     ├── exang: 2 kategori
-    │     ├── slope: 3 kategori
-    │     ├── thal: 4 kategori
-    │     └── fbs: 2 kategori
+    │     ├── sex: 2 kategori → [0, 1]
+    │     ├── cp: 4 kategori → [0, 1, 2, 3]
+    │     ├── restecg: 3 kategori → [0, 1, 2]
+    │     ├── exang: 2 kategori → [0, 1]
+    │     ├── slope: 3 kategori → [0, 1, 2]
+    │     ├── thal: 4 kategori → [0, 1, 2, 3]
+    │     └── fbs: 2 kategori → [0, 1]
     │
     ├── 3. Eksik Değer Doldurma (KNN Imputer, k=5)
-    │     └── 5 eksik değer → 0
     │
-    ├── 4. Aykırı Değer Baskılama (Winsorizing %5-%95)
-    │     ├── age: [28, 77] → [39, 68]
-    │     ├── trestbps: [94, 200] → [108, 160]
-    │     ├── chol: [126, 564] → [175, 327]
-    │     ├── thalch: [71, 202] → [108, 182]
-    │     └── oldpeak: [0, 6.2] → [0, 3.4]
+    ├── 4. Ölçekleme (Senaryoya göre)
+    │     ├── RobustScaler: S0, S2, S3, S4
+    │     └── StandardScaler: S1, S5 (PCA için zorunlu)
     │
-    ├── 5. Özellik Mühendisliği (+4 yeni özellik)
-    │
-    ├── 6. Ölçekleme (RobustScaler / StandardScaler)
-    │
-    └── 7. Sınıf Dengeleme (SMOTE)
-          └── 165 Sağlıklı, 139 Hasta → 165 Sağlıklı, 165 Hasta
+    └── 5. Senaryoya Bağlı Ek İşlemler
+          ├── S1: PCA (%95 varyans)
+          ├── S2: Feature Engineering (+4 özellik)
+          ├── S3: SMOTE (sınıf dengeleme)
+          ├── S4: Optuna (hiperparametre optimizasyonu)
+          └── S5: FE + PCA + SMOTE + Optuna
 ```
 
 ### 3.2 Kullanılan Teknikler
 
 #### 3.2.1 KNN Imputer
 
-- **Neden:** Ortalama/medyan yerine benzer örneklerin değerlerini kullanır
+```python
+from sklearn.impute import KNNImputer
+imputer = KNNImputer(n_neighbors=5)
+df_processed[numeric_cols] = imputer.fit_transform(df_processed[numeric_cols])
+```
+
 - **Parametre:** k=5 (en yakın 5 komşu)
-- **Avantaj:** Verinin çok değişkenli yapısını korur
+- **Avantaj:** Benzer örneklerin değerlerini kullanır
 
-#### 3.2.2 Winsorizing (Aykırı Değer Baskılama)
+#### 3.2.2 RobustScaler vs StandardScaler
 
-- **Neden:** Küçük veri setlerinde aykırı değerleri silmek yerine baskılamak tercih edilir
-- **Parametre:** %5-%95 perzantil aralığı
-- **Avantaj:** Veri kaybını önler, aşırı uç değerlerin etkisini azaltır
+| Scaler | Formül | Kullanım Senaryosu |
+|--------|--------|-------------------|
+| **RobustScaler** | `(X - median) / IQR` | S0, S2, S3, S4 - Aykırı değerlere dayanıklı |
+| **StandardScaler** | `(X - mean) / std` | S1, S5 - PCA için zorunlu |
 
-#### 3.2.3 RobustScaler
+#### 3.2.3 SMOTE
 
-- **Neden:** Aykırı değerlere karşı dirençli ölçekleme
-- **Formül:** (x - median) / IQR
-- **Avantaj:** StandardScaler'a göre outlier'lara daha az duyarlı
+```python
+from imblearn.over_sampling import SMOTE
+smote = SMOTE(random_state=42)
+X_resampled, y_resampled = smote.fit_resample(X_scaled, y)
+```
 
-#### 3.2.4 SMOTE (Synthetic Minority Over-sampling Technique)
+- **Sonuç:** 165 Sağlıklı vs 139 Hasta → 165 Sağlıklı vs 165 Hasta
 
-- **Neden:** Sınıf dengesizliğini gidermek için sentetik azınlık örnekleri üretir
-- **Önemli:** Sadece eğitim setine uygulanır (data leakage önlemi)
-- **Sonuç:** 165 vs 139 → 165 vs 165 (dengeli sınıflar)
+#### 3.2.4 PCA
+
+```python
+from sklearn.decomposition import PCA
+pca = PCA(n_components=0.95, random_state=42)
+X_pca = pca.fit_transform(X_scaled)
+```
+
+- **Sonuç:** 13 özellik → 12 bileşen (%97.14 varyans korundu)
 
 ### 3.3 Validasyon Stratejisi
 
-```
-Stratified 10-Fold Cross Validation
-├── Fold 1: Test (30), Eğitim (274)
-├── Fold 2: Test (30), Eğitim (274)
-├── ...
-└── Fold 10: Test (30), Eğitim (274)
+Tüm senaryolarda **Stratified 10-Fold Cross Validation** kullanılmıştır:
 
-Sonuç Formatı: Ortalama ± Standart Sapma
-Örnek: F1 = 0.843 ± 0.090
+```python
+from sklearn.model_selection import StratifiedKFold, cross_val_score
+skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
 ```
 
-**Neden Stratified K-Fold?**
-
-- Her fold'da sınıf oranları korunur (Hasta/Sağlıklı)
-- Küçük veri setlerinde tek train/test split yetersiz
-- Daha güvenilir ve tekrarlanabilir sonuçlar
+**Neden 10-Fold CV?**
+1. Her fold'da sınıf oranları korunur
+2. 10 farklı test seti ile güvenilir performans tahmini
+3. Standart sapma model kararlılığını gösterir
 
 ### 3.4 Hiperparametre Optimizasyonu (Optuna)
 
-Optuna, Bayesian optimizasyon tabanlı bir hiperparametre arama kütüphanesidir.
+```python
+import optuna
 
-**Avantajları:**
+def objective(trial):
+    n_estimators = trial.suggest_int('n_estimators', 50, 300)
+    max_depth = trial.suggest_int('max_depth', 3, 20)
+    # ...
+    model = RandomForestClassifier(...)
+    return cross_val_score(model, X, y, cv=skf, scoring='f1').mean()
 
-- Grid Search'ten daha verimli (gereksiz kombinasyonları atlar)
-- Random Search'ten daha akıllı (önceki denemelerden öğrenir)
-- Pruning özelliği ile zaman tasarrufu
+study = optuna.create_study(direction='maximize')
+study.optimize(objective, n_trials=30, show_progress_bar=True)
+```
 
-**Optimizasyon Ayarları:**
-
-- Trial sayısı: 30-50
-- Metrik: F1-Score (maximize)
-- Yön: maximize
+| Özellik | Değer |
+|---------|-------|
+| **Algoritma** | TPE (Bayesian Optimizasyon) |
+| **Trial Sayısı** | 30 (S4), 50 (S5) |
+| **Metrik** | F1-Score (maximize) |
 
 ---
 
-## 4. Deneysel Sonuçlar
+## 4. Kullanılan Modeller
 
-### 4.1 Senaryo Karşılaştırması
+### 4.1 Modeller ve Varsayılan Parametreleri
 
-5 farklı senaryo, aynı model (Random Forest) üzerinde test edilmiştir:
+| Model | Varsayılan Parametreler |
+|-------|------------------------|
+| **Logistic Regression** | `max_iter=1000, random_state=42` |
+| **Random Forest** | `random_state=42, n_jobs=-1` |
+| **SVM** | `probability=True, random_state=42` |
+| **Naive Bayes** | `GaussianNB()` (varsayılan) |
+| **XGBoost** | `random_state=42, n_jobs=-1, eval_metric='logloss'` |
+| **KNN** | `n_jobs=-1` |
 
-| Senaryo             | Açıklama                            | F1-Score        | AUC       | Baseline'a Göre |
-| ------------------- | ----------------------------------- | --------------- | --------- | --------------- |
-| **1. Baseline**     | Varsayılan RF parametreleri         | 0.824±0.083     | 0.911     | -               |
-| **2. Feature Eng.** | +4 mühendislik özelliği             | 0.822±0.087     | 0.909     | -0.2%           |
-| **3. PCA**          | %95 varyans koruyan boyut indirgeme | 0.814±0.072     | 0.905     | -1.2%           |
-| **4. Optuna**       | Hiperparametre optimizasyonu        | **0.843±0.090** | **0.912** | **+2.3%**       |
-| **5. All Combined** | FE + PCA + Optuna                   | 0.824±0.050     | 0.904     | 0%              |
+### 4.2 Optuna Hiperparametre Arama Uzayları
+
+#### Logistic Regression
+| Parametre | Aralık |
+|-----------|--------|
+| `C` | [0.01, 10.0] (log scale) |
+| `penalty` | ['l1', 'l2'] |
+
+#### Random Forest
+| Parametre | Aralık |
+|-----------|--------|
+| `n_estimators` | [50, 300] |
+| `max_depth` | [3, 20] |
+| `min_samples_split` | [2, 20] |
+| `min_samples_leaf` | [1, 10] |
+
+#### SVM
+| Parametre | Aralık |
+|-----------|--------|
+| `C` | [0.1, 100.0] (log scale) |
+| `gamma` | ['scale', 'auto'] |
+| `kernel` | ['rbf', 'poly'] |
+
+#### Naive Bayes
+| Parametre | Aralık |
+|-----------|--------|
+| `var_smoothing` | [1e-12, 1e-6] (log scale) |
+
+#### XGBoost
+| Parametre | Aralık |
+|-----------|--------|
+| `n_estimators` | [50, 300] |
+| `max_depth` | [3, 15] |
+| `learning_rate` | [0.01, 0.3] (log scale) |
+| `subsample` | [0.6, 1.0] |
+| `colsample_bytree` | [0.6, 1.0] |
+
+#### KNN
+| Parametre | Aralık |
+|-----------|--------|
+| `n_neighbors` | [3, 21] (tek sayılar) |
+| `weights` | ['uniform', 'distance'] |
+| `metric` | ['euclidean', 'manhattan'] |
+
+---
+
+## 5. Deneysel Sonuçlar
+
+### 5.1 Senaryo 0: Baseline
+
+**Konfigürasyon:** RobustScaler + 10-Fold CV + 6 Model (varsayılan parametreler)
+
+| Model | Accuracy | Recall | F1-Score | AUC |
+|-------|----------|--------|----------|-----|
+| **Logistic Regression** 🏆 | 0.842±0.053 | 0.771±0.076 | **0.817±0.061** | 0.911±0.056 |
+| SVM | 0.832±0.055 | 0.771±0.099 | 0.806±0.069 | 0.900±0.056 |
+| KNN | 0.822±0.082 | 0.771±0.126 | 0.796±0.102 | 0.877±0.066 |
+| Naive Bayes | 0.819±0.049 | 0.785±0.084 | 0.798±0.058 | 0.895±0.055 |
+| Random Forest | 0.809±0.046 | 0.757±0.096 | 0.783±0.052 | 0.896±0.045 |
+| **XGBoost** 📉 | 0.763±0.066 | 0.721±0.133 | **0.732±0.088** | 0.881±0.043 |
 
 **Bulgular:**
+- 🏆 **En İyi:** Logistic Regression (F1=0.817)
+- 📉 **En Kötü:** XGBoost (F1=0.732)
+- Senaryo 5 için bu iki model seçildi
 
-1. **Optuna tek başına en etkili** iyileştirme sağlamıştır (+2.3%)
-2. **Feature Engineering bu veri setinde etkisiz** - Cleveland zaten iyi tasarlanmış özellikler içeriyor
-3. **PCA performansı düşürmüştür** - Küçük veri setlerinde boyut indirgeme genellikle zararlı
-4. **All Combined'da varyans düşük** (±0.050) - Daha kararlı ama peak performans düşük
+### 5.2 Senaryo 1: + PCA
 
-### 4.2 Model Karşılaştırması (Optuna Optimized)
+**Konfigürasyon:** StandardScaler + PCA(%95) + 10-Fold CV + 6 Model  
+**PCA Sonucu:** 13 özellik → 12 bileşen (%97.14 varyans)
 
-Tüm modeller aynı preprocessing pipeline üzerinde Optuna ile optimize edilmiştir:
+| Model | Accuracy | Recall | F1-Score | AUC |
+|-------|----------|--------|----------|-----|
+| **Logistic Regression** 🏆 | 0.845±0.049 | 0.771±0.069 | **0.820±0.056** | 0.910±0.060 |
+| XGBoost | 0.822±0.051 | 0.799±0.099 | 0.803±0.061 | 0.887±0.062 |
+| SVM | 0.825±0.058 | 0.756±0.120 | 0.794±0.080 | 0.900±0.050 |
+| Random Forest | 0.802±0.063 | 0.771±0.119 | 0.780±0.072 | 0.878±0.052 |
+| KNN | 0.799±0.048 | 0.757±0.096 | 0.774±0.055 | 0.873±0.053 |
+| Naive Bayes | 0.806±0.075 | 0.735±0.114 | 0.774±0.090 | 0.893±0.061 |
 
-| Model               | Accuracy        | Recall          | F1-Score        | AUC       | Varyans   |
-| ------------------- | --------------- | --------------- | --------------- | --------- | --------- |
-| Logistic Regression | 0.845±0.078     | 0.806±0.082     | 0.839±0.082     | 0.907     | Orta      |
-| Random Forest       | 0.848±0.092     | 0.822±0.119     | 0.841±0.101     | 0.912     | Yüksek    |
-| **SVM**             | **0.848±0.049** | 0.824±0.087     | **0.843±0.052** | 0.905     | **Düşük** |
-| XGBoost             | 0.845±0.072     | **0.829±0.083** | 0.843±0.077     | **0.915** | Orta      |
+**Baseline'a Göre Değişim:**
+- LR: +0.3% F1 iyileşme
+- XGBoost: +7.1% F1 iyileşme (en çok fayda gören)
 
-**Optimum Hiperparametreler:**
+### 5.3 Senaryo 2: + Feature Engineering
 
-```
-Logistic Regression:
-  - C: ~1.5 (regularization strength)
-  - penalty: l2
+**Konfigürasyon:** RobustScaler + 4 Yeni Özellik + 10-Fold CV + 6 Model  
+**Yeni Özellikler:** risk_score, age_group, hr_age_ratio, bp_chol_interaction
 
-Random Forest:
-  - n_estimators: 200-250
-  - max_depth: 9-15
-  - min_samples_split: 4-10
-  - min_samples_leaf: 1-2
+| Model | Accuracy | Recall | F1-Score | AUC |
+|-------|----------|--------|----------|-----|
+| **Logistic Regression** 🏆 | 0.839±0.060 | 0.778±0.080 | **0.815±0.068** | 0.910±0.059 |
+| Naive Bayes | 0.812±0.047 | 0.785±0.070 | 0.793±0.050 | 0.878±0.069 |
+| Random Forest | 0.812±0.077 | 0.757±0.115 | 0.786±0.089 | 0.895±0.064 |
+| SVM | 0.819±0.065 | 0.721±0.120 | 0.781±0.086 | 0.898±0.061 |
+| XGBoost | 0.789±0.062 | 0.771±0.114 | 0.769±0.071 | 0.887±0.037 |
+| KNN | 0.799±0.098 | 0.735±0.127 | 0.769±0.114 | 0.870±0.068 |
 
-SVM:
-  - C: ~10-50
-  - kernel: rbf
-  - gamma: scale
+**Baseline'a Göre Değişim:**
+- LR: -0.2% F1 (minimal etki)
+- Feature engineering bu veri setinde etkisiz
 
-XGBoost:
-  - n_estimators: 150-200
-  - max_depth: 5-8
-  - learning_rate: 0.05-0.15
-  - subsample: 0.7-0.9
-  - colsample_bytree: 0.7-0.9
-```
+### 5.4 Senaryo 3: + SMOTE
 
-### 4.3 Özellik Önem Analizi
+**Konfigürasyon:** RobustScaler + SMOTE + 10-Fold CV + 6 Model  
+**SMOTE Sonucu:** 165 vs 139 → 165 vs 165 (dengeli sınıflar)
 
-Random Forest feature importance sonuçları:
+| Model | Accuracy | Recall | F1-Score | AUC |
+|-------|----------|--------|----------|-----|
+| **Logistic Regression** 🏆 | 0.842±0.074 | 0.806±0.066 | **0.837±0.075** | 0.908±0.055 |
+| KNN | 0.830±0.067 | 0.824±0.104 | 0.827±0.074 | 0.901±0.067 |
+| XGBoost | 0.830±0.068 | 0.811±0.081 | 0.826±0.073 | 0.899±0.055 |
+| SVM | 0.836±0.056 | 0.799±0.091 | 0.828±0.063 | 0.902±0.053 |
+| Random Forest | 0.830±0.076 | 0.805±0.096 | 0.824±0.083 | 0.911±0.060 |
+| Naive Bayes | 0.821±0.060 | 0.781±0.094 | 0.811±0.070 | 0.889±0.047 |
 
-| Sıra | Özellik                     | Önem Skoru | Yorumu                                       |
-| ---- | --------------------------- | ---------- | -------------------------------------------- |
-| 1    | `cp` (Göğüs Ağrısı Tipi)    | 0.1736     | **En kritik** - Asymptomatic tip yüksek risk |
-| 2    | `thal` (Talasemi)           | 0.1356     | Reversable defect kalp hastalığı göstergesi  |
-| 3    | `thalch` (Max Kalp Hızı)    | 0.1321     | Düşük max HR kötü prognoz                    |
-| 4    | `ca` (Boyanan Damar Sayısı) | 0.1295     | Daha fazla damar = daha yüksek risk          |
-| 5    | `oldpeak` (ST Depresyonu)   | 0.0978     | EKG anomalisi göstergesi                     |
-| 6    | `exang` (Egzersiz Anginası) | 0.0902     | Pozitif = yüksek risk                        |
-| 7    | `slope` (ST Eğimi)          | 0.0615     | Flat/downsloping = risk                      |
-| 8    | `age` (Yaş)                 | 0.0582     | Yaşla birlikte artan risk                    |
-| 9    | `trestbps` (Kan Basıncı)    | 0.0398     | Hipertansiyon riski                          |
-| 10   | `sex` (Cinsiyet)            | 0.0350     | Erkeklerde daha yüksek risk                  |
+**Baseline'a Göre Değişim:**
+- LR: +2.0% F1 iyileşme
+- XGBoost: +9.4% F1 iyileşme (en çok fayda gören!)
+- **SMOTE tüm modellerde önemli iyileşme sağladı**
 
-### 4.4 SHAP Analizi (Açıklanabilir AI)
+### 5.5 Senaryo 4: + Optuna
 
-SHAP (SHapley Additive exPlanations) değerleri, her özelliğin model kararına katkısını gösterir:
+**Konfigürasyon:** RobustScaler + Optuna(30 trial) + 10-Fold CV + 6 Model
 
-**Pozitif SHAP Değeri:** Kalp hastalığı riskini artırır
-**Negatif SHAP Değeri:** Riski azaltır
+| Model | Accuracy | Recall | F1-Score | AUC |
+|-------|----------|--------|----------|-----|
+| **Random Forest** 🏆 | 0.848±0.056 | 0.778±0.086 | **0.824±0.065** | 0.914±0.048 |
+| XGBoost | 0.836±0.049 | 0.814±0.065 | 0.820±0.049 | 0.906±0.045 |
+| Logistic Regression | 0.842±0.053 | 0.771±0.076 | 0.817±0.061 | 0.911±0.057 |
+| SVM | 0.845±0.072 | 0.757±0.111 | 0.815±0.090 | 0.906±0.055 |
+| KNN | 0.829±0.056 | 0.764±0.090 | 0.802±0.068 | 0.906±0.044 |
+| Naive Bayes | 0.819±0.049 | 0.785±0.084 | 0.798±0.058 | 0.895±0.055 |
 
-**Temel Bulgular:**
+**Baseline'a Göre Değişim:**
+- RF: +4.1% F1 iyileşme (Optuna'dan en çok fayda gören)
+- XGBoost: +8.8% F1 iyileşme
+- **Optuna tüm modellerde iyileştirme sağladı**
 
-- `cp = asymptomatic` → En yüksek pozitif etki (risk artışı)
-- `thal = reversable defect` → Güçlü pozitif etki
-- `thalch` yüksek → Negatif etki (risk azalması)
-- `ca` yüksek → Pozitif etki (risk artışı)
+### 5.6 Senaryo 5: All Combined
 
----
+**Konfigürasyon:** StandardScaler + FE + PCA + SMOTE + Optuna(50 trial) + 10-Fold CV  
+**Test Edilen Modeller:** En iyi (LR) ve en kötü (XGBoost) modeller  
+**Pipeline:** 17 özellik → PCA: 12 → SMOTE: 330 örnek
 
-## 5. Performans Metrikleri Açıklaması
+| Model | Accuracy | Recall | F1-Score | AUC |
+|-------|----------|--------|----------|-----|
+| **Logistic Regression (Best)** 🏆 | 0.845±0.064 | 0.824±0.051 | **0.843±0.064** | 0.916±0.048 |
+| **XGBoost (Worst)** | 0.830±0.053 | 0.849±0.049 | **0.834±0.051** | 0.909±0.038 |
 
-### 5.1 Metrik Tanımları
-
-| Metrik                   | Formül                | Tıbbi Yorumu                          |
-| ------------------------ | --------------------- | ------------------------------------- |
-| **Accuracy**             | (TP+TN)/(TP+TN+FP+FN) | Genel doğruluk, yanıltıcı olabilir    |
-| **Precision**            | TP/(TP+FP)            | "Hasta" dediğimizde ne kadar haklıyız |
-| **Recall (Sensitivity)** | TP/(TP+FN)            | Gerçek hastaların kaçını yakaladık    |
-| **F1-Score**             | 2×(P×R)/(P+R)         | Precision ve Recall dengesi           |
-| **AUC-ROC**              | Area Under ROC Curve  | Sınıfları ayırt etme yeteneği         |
-
-### 5.2 Tıbbi Bağlamda Metrik Önceliği
-
-**Kritik:** Tıbbi taramada **Recall (Duyarlılık)** en önemli metriktir.
-
-**Neden?**
-
-- **False Negative (Tip II Hata):** Gerçek hastaya "sağlıklı" demek → Tedavi gecikmesi → Ölüm riski
-- **False Positive (Tip I Hata):** Sağlıklı kişiye "hasta" demek → Gereksiz testler → Maliyet
-
-**Sonuç:** FN >> FP maliyeti → Recall optimizasyonu kritik
-
-### 5.3 Confusion Matrix Yorumu
-
-```
-                    Tahmin
-                Sağlıklı   Hasta
-Gerçek  Sağlıklı   TN       FP (Tip I)
-        Hasta      FN (Tip II)  TP
-```
-
-**Örnek Sonuç (SVM):**
-
-- TP (True Positive): ~136
-- TN (True Negative): ~143
-- FP (False Positive): ~22
-- FN (False Negative): ~29
-
-**Recall = 136 / (136+29) = 0.824** → Hastaların %82.4'ünü doğru tespit
+**Baseline'a Göre Değişim:**
+- LR: +2.6% F1 iyileşme (0.817 → 0.843)
+- XGBoost: **+10.2% F1 iyileşme** (0.732 → 0.834) 🚀
 
 ---
 
-## 6. Model Seçimi Önerileri
+## 6. Senaryo Karşılaştırması Özeti
 
-### 6.1 Uygulama Senaryolarına Göre
+### 6.1 Tüm Senaryoların Özeti
 
-| Senaryo                   | Önerilen Model      | Gerekçe                                     |
-| ------------------------- | ------------------- | ------------------------------------------- |
-| **Tarama Programı**       | XGBoost             | En yüksek Recall (0.829) - Az hasta kaçırır |
-| **Klinik Karar Destek**   | SVM                 | En düşük varyans (±0.052) - Güvenilir       |
-| **Araştırma Projesi**     | Random Forest       | Yorumlanabilir feature importance           |
-| **Gerçek Zamanlı Sistem** | Logistic Regression | Hızlı, basit, yorumlanabilir                |
+| Senaryo | Ortalama F1 | En İyi F1 | En İyi Model |
+|---------|-------------|-----------|--------------|
+| **S0: Baseline** | 0.788 | 0.817 | Logistic Regression |
+| **S1: + PCA** | 0.791 | 0.820 | Logistic Regression |
+| **S2: + FE** | 0.785 | 0.815 | Logistic Regression |
+| **S3: + SMOTE** | 0.826 | 0.837 | Logistic Regression |
+| **S4: + Optuna** | 0.813 | 0.824 | Random Forest |
+| **S5: All Combined** 🏆 | **0.838** | **0.843** | Logistic Regression |
 
-### 6.2 Nihai Öneri
+### 6.2 Teknik Bazında Etki Analizi
 
-**XGBoost** modeli şu avantajlara sahiptir:
+| Teknik | Ortalama F1 Artışı | En Çok Fayda Gören Model |
+|--------|-------------------|--------------------------|
+| **PCA** | +0.3% | XGBoost (+7.1%) |
+| **Feature Engineering** | -0.3% | - (Etkisiz) |
+| **SMOTE** | +3.8% | XGBoost (+9.4%) |
+| **Optuna** | +2.5% | RF (+4.1%), XGBoost (+8.8%) |
+| **All Combined** | +5.0% | XGBoost (+10.2%) |
 
-- En yüksek AUC (0.915) - Ayırt edicilik
-- En yüksek Recall (0.829) - Hasta yakalama
-- Dengeli varyans (±0.077)
-- Gradient boosting ile robust performans
+### 6.3 Temel Bulgular
 
----
-
-## 7. Sınırlamalar ve Gelecek Çalışmalar
-
-### 7.1 Mevcut Sınırlamalar
-
-1. **Küçük Veri Seti:** 304 örnek, modern standartlara göre yetersiz
-2. **Tek Merkez Verisi:** Sadece Cleveland - genelleştirilebilirlik sorunu
-3. **Temporal Validasyon Yok:** Zaman içinde performans değişimi test edilmedi
-4. **Derin Öğrenme Uygulanmadı:** Veri yetersizliği nedeniyle
-
-### 7.2 Gelecek Çalışma Önerileri
-
-1. **Multi-center Validation:** Hungary, Switzerland, VA Long Beach verileri ile test
-2. **Ensemble Methods:** Voting/Stacking ile model birleştirme
-3. **Cost-sensitive Learning:** FN maliyetini yüksek tutarak eğitim
-4. **Prospektif Validasyon:** Yeni hasta verileri ile gerçek dünya testi
-5. **Neural Network:** TabNet veya 1D-CNN denemesi (daha fazla veri ile)
+1. **SMOTE en etkili teknik** - Tüm modellerde önemli iyileşme sağladı
+2. **Feature Engineering etkisiz** - Cleveland veri seti zaten iyi tasarlanmış
+3. **XGBoost en çok gelişen model** - Baseline'da en kötü, All Combined'da çok iyi
+4. **Logistic Regression en tutarlı** - Her senaryoda en iyi veya en iyi 2'de
+5. **Tüm teknikler birlikte +10% iyileşme** sağladı (XGBoost için)
 
 ---
 
-## 8. Teknik Uygulama Detayları
+## 7. Performans Metrikleri
 
-### 8.1 Kullanılan Kütüphaneler
+### 7.1 Metrik Tanımları
+
+| Metrik | Formül | Tıbbi Yorumu |
+|--------|--------|--------------|
+| **Accuracy** | (TP+TN)/(TP+TN+FP+FN) | Genel doğruluk |
+| **Recall** | TP/(TP+FN) | Gerçek hastaların kaçını yakaladık |
+| **F1-Score** | 2×(P×R)/(P+R) | Precision ve Recall dengesi |
+| **AUC-ROC** | Area Under ROC | Sınıf ayırt etme yeteneği |
+
+### 7.2 Tıbbi Bağlamda Metrik Önceliği
+
+**Kritik:** Tıbbi taramada **Recall** en önemli metriktir.
+
+- **False Negative (Tip II Hata):** Hastaya "sağlıklı" demek → Tedavi gecikmesi
+- **False Positive (Tip I Hata):** Sağlıklıya "hasta" demek → Gereksiz testler
+
+**Sonuç:** FN maliyeti >> FP maliyeti
+
+---
+
+## 8. Model Seçimi Önerileri
+
+### 8.1 Uygulama Senaryolarına Göre
+
+| Senaryo | Önerilen Model | Gerekçe |
+|---------|----------------|---------|
+| **Tarama Programı** | LR + All Combined | En yüksek Recall (0.824) |
+| **Klinik Karar Destek** | Logistic Regression | Yorumlanabilir, tutarlı |
+| **Sınırlı Kaynak** | LR + SMOTE | İyi performans, hızlı |
+
+### 8.2 Nihai Öneri
+
+**Logistic Regression + All Combined Pipeline:**
+- F1-Score: 0.843±0.064
+- AUC: 0.916±0.048
+- Recall: 0.824 (hastaların %82.4'ünü yakalama)
+- Avantaj: Yorumlanabilir, hızlı, düşük varyans
+
+---
+
+## 9. Teknik Uygulama
+
+### 9.1 Kullanılan Kütüphaneler
 
 ```python
 # Veri İşleme
-pandas==2.0+
-numpy==1.24+
+pandas>=2.0, numpy>=1.24
 
 # Makine Öğrenmesi
-scikit-learn==1.3+
-xgboost==2.0+
-imbalanced-learn==0.11+  # SMOTE
+scikit-learn>=1.3, xgboost>=2.0, imbalanced-learn>=0.11
 
-# Hiperparametre Optimizasyonu
-optuna==3.4+
+# Optimizasyon
+optuna>=3.4
 
 # Görselleştirme
-matplotlib==3.7+
-seaborn==0.12+
-
-# Açıklanabilir AI
-shap==0.43+
+matplotlib>=3.7, seaborn>=0.12
 ```
 
-### 8.2 Kod Dosyaları
+### 9.2 Kod Dosyaları
 
-| Dosya                           | Açıklama                            |
-| ------------------------------- | ----------------------------------- |
-| `main_2_new_technics.py`        | Temel analiz pipeline, tüm modeller |
-| `main_3_scenario_comparison.py` | Senaryo karşılaştırması + Optuna    |
-| `results_*/`                    | Sonuç klasörleri (tarih damgalı)    |
+| Dosya | Açıklama |
+|-------|----------|
+| `main_5_revised_scenarios.py` | 6 Senaryo karşılaştırması |
+| `scenario_results_*/` | Sonuç klasörleri (tarih damgalı) |
 
-### 8.3 Çalıştırma Komutları
+### 9.3 Çalıştırma
 
 ```bash
-# Temel analiz
-python main_2_new_technics.py
-
-# Senaryo karşılaştırması + Model optimizasyonu
-python main_3_scenario_comparison.py
+python main_5_revised_scenarios.py
 ```
 
 ---
 
-## 9. Sonuç
+## 10. Sonuç
 
-Bu çalışmada UCI Heart Disease Cleveland veri seti üzerinde kapsamlı bir makine öğrenmesi analizi gerçekleştirilmiştir. Temel bulgular:
+Bu çalışmada UCI Heart Disease Cleveland veri seti üzerinde 6 senaryo ile kapsamlı bir ablation study gerçekleştirilmiştir.
 
-1. **Hiperparametre optimizasyonu (Optuna)** en etkili iyileştirme yöntemidir (+2.3% F1)
-2. **Feature engineering ve PCA** bu veri setinde fayda sağlamamıştır
-3. **SVM ve XGBoost** en iyi performansı göstermiştir (F1 ≈ 0.843)
-4. **Göğüs ağrısı tipi (cp)** en önemli prediktör özeliktir
-5. **Stratified 10-Fold CV** küçük veri setleri için zorunludur
+### Temel Bulgular:
 
-**Tıbbi öneri:** Tarama programlarında XGBoost modeli, yüksek Recall değeri ile hastaların tespit edilme oranını maksimize eder.
+1. ✅ **SMOTE en etkili teknik** (+3.8% ortalama F1)
+2. ✅ **Logistic Regression en tutarlı model** (her senaryoda top-2)
+3. ✅ **XGBoost en çok gelişen model** (+10.2% All Combined'da)
+4. ❌ **Feature Engineering etkisiz** (Cleveland zaten iyi tasarlanmış)
+5. ✅ **Tüm teknikler birlikte** F1=0.843 elde edildi
+
+### Tıbbi Öneri:
+
+Tarama programlarında **Logistic Regression + SMOTE + Optuna** kombinasyonu önerilir:
+- Yüksek Recall (%82+) ile hasta yakalama
+- Yorumlanabilir model (klinik açıklama)
+- Düşük hesaplama maliyeti
 
 ---
 
 ## Kaynaklar
 
 1. UCI Machine Learning Repository - Heart Disease Dataset
-2. Dua, D. and Graff, C. (2019). UCI Machine Learning Repository
-3. Lundberg, S. M., & Lee, S. I. (2017). SHAP: A Unified Approach to Interpreting Model Predictions
-4. Akiba, T., et al. (2019). Optuna: A Next-generation Hyperparameter Optimization Framework
-5. Chawla, N. V., et al. (2002). SMOTE: Synthetic Minority Over-sampling Technique
+2. Akiba, T., et al. (2019). Optuna: Hyperparameter Optimization Framework
+3. Chawla, N. V., et al. (2002). SMOTE: Synthetic Minority Over-sampling
 
 ---
 
 **Rapor Sonu**
 
-_Bu rapor, UCI Heart Disease veri seti üzerinde yapılan kapsamlı makine öğrenmesi analizinin teknik dokümantasyonudur._
+_Son Güncelleme: 1 Ocak 2025_

@@ -1,0 +1,33 @@
+============================================================
+TÜM MODELLER - EN İYİ PARAMETRELER
+============================================================
+
+Logistic Regression:
+  C: 0.31002175460559644
+  penalty: l1
+
+Random Forest:
+  n_estimators: 51
+  max_depth: 11
+  min_samples_split: 10
+  min_samples_leaf: 2
+
+SVM:
+  C: 1.5632076845515084
+  gamma: scale
+  kernel: rbf
+
+Naive Bayes:
+  var_smoothing: 9.577449512850456e-09
+
+XGBoost:
+  n_estimators: 162
+  max_depth: 15
+  learning_rate: 0.1390707604138817
+  subsample: 0.6319053263163646
+  colsample_bytree: 0.8271911979891576
+
+KNN:
+  n_neighbors: 7
+  weights: distance
+  metric: manhattan
