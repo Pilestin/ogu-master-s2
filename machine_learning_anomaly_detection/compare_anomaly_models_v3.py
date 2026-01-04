@@ -73,8 +73,8 @@ import seaborn as sns
 @dataclass
 class BaseConfig:
     """Base configuration"""
-    environment: str = "colab"
-    dataset_name: str = "wood_otsu"
+    environment: str = "local"
+    dataset_name: str = ""
     image_size: Tuple[int, int] = (256, 256)
     batch_size: int = 8
     augmentation_type: str = "enhanced"
@@ -1510,6 +1510,36 @@ class ExperimentRunner:
             self.output_dir
         )
         print(f"✓ Heatmaps saved")
+    
+    def save_all_best_heatmaps(self, metric: str = 'auc_roc'):
+        """Save heatmaps for best result of EACH model type"""
+        if len(self.results) == 0:
+            return
+        
+        # Group results by model type
+        models = {}
+        for r in self.results:
+            model = r['model']
+            if model not in models:
+                models[model] = []
+            models[model].append(r)
+        
+        print(f"\n📸 Generating heatmaps for best result of each model...")
+        print(f"   Models found: {list(models.keys())}")
+        
+        for model_name, results in models.items():
+            # Find best result for this model
+            best = max(results, key=lambda x: x[metric])
+            print(f"\n   [{model_name}] Best: {best['experiment_name']} (AUC: {best['auc_roc']:.4f})")
+            
+            save_heatmaps(
+                model_name, best['scores'], best['maps'],
+                best['labels'], best['paths'], best['threshold'],
+                self.output_dir
+            )
+            print(f"   ✓ {model_name} heatmaps saved")
+        
+        print(f"\n✅ All model heatmaps saved to: {self.output_dir}/heatmaps/")
 
 
 # ============================================================================
@@ -1566,7 +1596,7 @@ def run_quick_experiments():
     
     # Generate all visualizations
     runner.save_all_visualizations()
-    runner.save_best_heatmaps()
+    runner.save_all_best_heatmaps()  # Save heatmaps for all 4 models
     
     print(f"\n✅ Experiments complete! Results in: {output_dir}")
     return runner
@@ -1622,7 +1652,7 @@ def run_full_experiments():
     
     # Generate all visualizations
     runner.save_all_visualizations()
-    runner.save_best_heatmaps()
+    runner.save_all_best_heatmaps()  # Save heatmaps for all 4 models
     
     print(f"\n✅ Full experiments complete! Results in: {output_dir}")
     return runner
@@ -1670,7 +1700,7 @@ def run_single_model(model_type: str):
     
     # Generate all visualizations
     runner.save_all_visualizations()
-    runner.save_best_heatmaps()
+    runner.save_all_best_heatmaps()  # Save heatmaps for all models
     return runner
 
 

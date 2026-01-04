@@ -461,11 +461,29 @@ variants = {
     "grayscale": grayscale_config
 }
 
-# 🔁 Her varyantı sırayla çalıştır
-for name, cfg in variants.items():
-    print(f"\n{'='*70}")
-    print(f"🧩 Varyant işleniyor: {name}")
-    print(f"{'='*70}")
-    process_and_save(df, preprocessor, "dataset", cfg, name)
+# Desteklenen çözünürlükler
+RESOLUTIONS = [256, 512]
+
+#  Her varyant ve çözünürlük kombinasyonunu sırayla çalıştır
+for resolution in RESOLUTIONS:
+    print(f"\n{'#'*70}")
+    print(f"📐 ÇÖZÜNÜRLÜK: {resolution}x{resolution}")
+    print(f"{'#'*70}")
+    
+    # Bu çözünürlük için preprocessor oluştur
+    preprocessor = ImagePreprocessor(target_size=(resolution, resolution))
+    
+    for name, cfg in variants.items():
+        # Klasör ismine çözünürlük ekini ekle
+        variant_name = f"{name}_{resolution}"
+        
+        print(f"\n{'='*70}")
+        print(f"🧩 Varyant işleniyor: {variant_name}")
+        print(f"{'='*70}")
+        process_and_save(df, preprocessor, "dataset", cfg, variant_name)
 
 print("\n✅ Tüm varyantlar başarıyla oluşturuldu!")
+print(f"📂 Oluşturulan klasörler:")
+for resolution in RESOLUTIONS:
+    for name in variants.keys():
+        print(f"   - dataset/{name}_{resolution}/")
