@@ -74,8 +74,8 @@ import seaborn as sns
 class BaseConfig:
     """Base configuration"""
     environment: str = "local"
-    dataset_name: str = ""
-    image_size: Tuple[int, int] = (256, 256)
+    dataset_name: str = "clahe_only_512"
+    image_size: Tuple[int, int] = (512, 512)  # Dataset çözünürlüğü ile eşleşmeli
     batch_size: int = 8
     augmentation_type: str = "enhanced"
     early_stopping_patience: int = 10
@@ -1549,7 +1549,6 @@ class ExperimentRunner:
 def run_quick_experiments():
     """Quick experiments with reduced parameters"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join("results", f"experiment_{timestamp}")
     
     print("\n" + "="*80)
     print("🔬 QUICK EXPERIMENT MODE")
@@ -1557,9 +1556,13 @@ def run_quick_experiments():
     
     # Base config with reduced epochs
     base = ExperimentConfig()
-    base.base.environment = "colab"  # Change as needed
+    # BaseConfig'deki environment değeri kullanılacak (local)
     base.autoencoder.epochs = 20
     base.simplenet.epochs = 15
+    
+    # Get paths based on environment (local vs colab)
+    paths = get_paths(base.base)
+    output_dir = os.path.join(paths["results"], f"experiment_{timestamp}")
     
     runner = ExperimentRunner(output_dir)
     
@@ -1605,23 +1608,26 @@ def run_quick_experiments():
 def run_full_experiments():
     """Full experiments with all parameters"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join("results", f"experiment_full_{timestamp}")
     
     print("\n" + "="*80)
     print("🔬 FULL EXPERIMENT MODE")
     print("="*80)
     
     base = ExperimentConfig()
-    base.base.environment = "colab"
+    # BaseConfig'deki environment değeri kullanılacak (local)
+    
+    # Get paths based on environment (local vs colab)
+    paths = get_paths(base.base)
+    output_dir = os.path.join(paths["results"], f"experiment_full_{timestamp}")
     
     runner = ExperimentRunner(output_dir)
     
-    # AutoEncoder
-    runner.run_grid_search("AutoEncoder", {
-        'latent_dim': [128, 256, 512],
-        'ssim_weight': [0.3, 0.5, 0.7],
-        'learning_rate': [1e-3, 5e-4]
-    }, base)
+    # # AutoEncoder
+    # runner.run_grid_search("AutoEncoder", {
+    #     'latent_dim': [128, 256, 512],
+    #     'ssim_weight': [0.3, 0.5, 0.7],
+    #     'learning_rate': [1e-3, 5e-4]
+    # }, base)
     
     # PatchCore
     runner.run_grid_search("PatchCore", {
@@ -1661,14 +1667,17 @@ def run_full_experiments():
 def run_single_model(model_type: str):
     """Run experiments for single model"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = os.path.join("results", f"experiment_{model_type.lower()}_{timestamp}")
     
     print(f"\n🔬 Single Model Experiment: {model_type}")
     
     base = ExperimentConfig()
-    base.base.environment = "colab"
+    # BaseConfig'deki environment değeri kullanılacak (local)
     base.autoencoder.epochs = 30
     base.simplenet.epochs = 20
+    
+    # Get paths based on environment (local vs colab)
+    paths = get_paths(base.base)
+    output_dir = os.path.join(paths["results"], f"experiment_{model_type.lower()}_{timestamp}")
     
     runner = ExperimentRunner(output_dir)
     
@@ -1713,7 +1722,7 @@ def main():
     print("="*80)
     
     # Parse arguments
-    mode = "quick"  # default
+    mode = "full"  # default
     model = None
     
     for arg in sys.argv[1:]:
