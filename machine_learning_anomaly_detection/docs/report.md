@@ -1,354 +1,684 @@
-# Wood Anomaly Detection V2 - Technical Report
+# Wood Anomaly Detection V3 - Technical Report
 
-**Report Date:** 2026-01-02  
-**Dataset:** wood_otsu  
-**Environment:** Google Colab (GPU)
+**Report Date:** 2026-01-06  
+**Dataset:** baseline_512  
+**Resolution:** 512×512  
+**Environment:** Local / Google Colab (GPU)
 
 ---
 
 ## Executive Summary
 
-This report documents the implementation and evaluation of three cold-start anomaly detection models for wood defect classification. The V2 implementation introduces significant improvements over the baseline, particularly in data augmentation techniques which resulted in notable performance gains.
+Bu rapor, ahşap yüzey defekt tespiti için geliştirilen **cold-start anomaly detection** sisteminin teknik detaylarını içermektedir. V3 sürümü, 4 farklı derin öğrenme modeli, kapsamlı veri ön işleme pipeline'ı ve grid search tabanlı hiperparametre optimizasyonu içermektedir.
+
+**Temel Özellikler:**
+
+- 4 model: AutoEncoder, PatchCore, SimpleNet, EfficientAD
+- Çoklu çözünürlük desteği: 256×256 ve 512×512
+- Grid search ile hiperparametre optimizasyonu
+- Otomatik en iyi model seçimi ve heatmap görselleştirme
 
 ---
 
-## 1. Methodology
+## 1. Problem Tanımı
 
-### 1.1 Problem Definition
+### 1.1 Cold-Start Anomaly Detection
 
-**Cold-Start Anomaly Detection**: Models are trained exclusively on "good" (normal) samples and must detect "defect" (anomalous) samples during inference without ever seeing defect examples during training.
+**Tanım:** Modeller yalnızca "iyi" (normal) örneklerle eğitilir ve test sırasında hiç görmediği "defektli" (anormal) örnekleri tespit etmelidir.
 
-### 1.2 Dataset Structure
+**Zorluklar:**
 
-| Split | Good Samples | Defect Samples |
-|-------|--------------|----------------|
-| Train | 36 | 0 |
-| Test  | 36 | 10 |
+- Defekt örnekleri eğitimde kullanılamaz
+- Model, normal dağılımı öğrenmeli ve sapmaları tespit etmeli
+- Düşük false positive oranı kritik
 
-**Preprocessing Applied**: Otsu thresholding for background removal (wood_otsu dataset)
+### 1.2 Veri Seti Yapısı
+
+| Split | Good (Normal)             | Defect (Anormal)           |
+| ----- | ------------------------- | -------------------------- |
+| Train | <!-- TRAIN_GOOD_COUNT --> | 0                          |
+| Test  | <!-- TEST_GOOD_COUNT -->  | <!-- TEST_DEFECT_COUNT --> |
 
 ---
 
-## 2. Model Architectures
+## 2. Veri Ön İşleme Pipeline
 
-### 2.1 AutoEncoder (Reconstruction-Based)
+### 2.1 Veri İşleme Script'i: `data_processing_script.py`
 
-**Concept**: Learn to reconstruct normal samples; anomalies will have higher reconstruction error.
+Orijinal görüntüler üzerinde uygulanan işlemler:
 
-**Architecture Details:**
+#### 2.1.1 Görüntü Yükleme (Türkçe Karakter Desteği)
+
+```python
+# Windows'ta Türkçe karakterli dosya yolları için
+image_array = np.fromfile(image_path, dtype=np.uint8)
+image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+```
+
+#### 2.1.2 Otsu Thresholding ile Kırpma
+
+```python
+def crop_with_otsu(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    largest_contour = max(contours, key=cv2.contourArea)
+    x, y, w, h = cv2.boundingRect(largest_contour)
+    margin = 10
+    return image[y-margin:y+h+margin, x-margin:x+w+margin]
+```
+
+**Amaç:** Arka planı kaldırarak sadece ahşap bölgesine odaklanmak.
+
+#### 2.1.3 Gürültü Azaltma (Bilateral Filter)
+
+```python
+def denoise(image, method='bilateral'):
+    return cv2.bilateralFilter(image, d=9, sigmaColor=75, sigmaSpace=75)
+```
+
+**Parametreler:**
+
+- `d=9`: Filter kernel boyutu
+- `sigmaColor=75`: Renk uzayında sigma
+- `sigmaSpace=75`: Koordinat uzayında sigma
+
+**Avantaj:** Kenarları koruyarak gürültüyü azaltır.
+
+#### 2.1.4 Kontrast Artırma (CLAHE)
+
+```python
+def enhance_contrast(image, method='clahe'):
+    lab = cv2.cvtColor(image, cv2.COLOR_RGB2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    l_clahe = clahe.apply(l)
+    enhanced_lab = cv2.merge([l_clahe, a, b])
+    return cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2RGB)
+```
+
+**CLAHE (Contrast Limited Adaptive Histogram Equalization):**
+
+- `clipLimit=2.0`: Kontrast sınırlama eşiği
+- `tileGridSize=(8,8)`: Yerel histogram eşitleme grid boyutu
+
+#### 2.1.5 Normalizasyon
+
+```python
+def normalize_image(image, method='minmax'):
+    image_float = image.astype(np.float32)
+    normalized = (image_float - image_float.min()) / (image_float.max() - image_float.min() + 1e-8)
+    return (normalized * 255).astype(np.uint8)
+```
+
+#### 2.1.6 Yeniden Boyutlandırma
+
+```python
+def resize_image(image, target_size=(512, 512)):
+    return cv2.resize(image, target_size, interpolation=cv2.INTER_LANCZOS4)
+```
+
+**INTER_LANCZOS4:** Yüksek kaliteli 8×8 Lanczos interpolasyonu.
+
+### 2.2 Ön İşleme Varyantları
+
+Script çalıştırıldığında oluşturulan veri setleri:
+
+| Varyant               | İşlemler                                           | Kullanım Amacı                |
+| --------------------- | -------------------------------------------------- | ----------------------------- |
+| `baseline_256`        | Otsu crop + resize(256)                            | Hızlı deneyler                |
+| `baseline_512`        | Otsu crop + resize(512)                            | Yüksek çözünürlük             |
+| `clahe_only_256`      | Otsu + CLAHE + resize(256)                         | Kontrast iyileştirme          |
+| `clahe_only_512`      | Otsu + CLAHE + resize(512)                         | Kontrast + yüksek çözünürlük  |
+| `full_preprocess_256` | Otsu + bilateral + CLAHE + normalize + resize(256) | Tam pipeline                  |
+| `full_preprocess_512` | Otsu + bilateral + CLAHE + normalize + resize(512) | En kapsamlı                   |
+| `grayscale_256`       | Otsu + grayscale + CLAHE + normalize + resize(256) | Tek kanal                     |
+| `grayscale_512`       | Otsu + grayscale + CLAHE + normalize + resize(512) | Tek kanal + yüksek çözünürlük |
+
+---
+
+## 3. Veri Artırma (Data Augmentation)
+
+### 3.1 Eğitim Sırasında Uygulanan Augmentasyonlar
+
+```python
+transforms_list = [
+    transforms.ToPILImage(),
+    transforms.Resize(image_size),
+    transforms.RandomRotation(degrees=15),
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomVerticalFlip(p=0.3),
+    transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.05),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+]
+```
+
+| Augmentasyon    | Parametre            | Açıklama                                |
+| --------------- | -------------------- | --------------------------------------- |
+| Random Rotation | ±15°                 | Rastgele döndürme                       |
+| Horizontal Flip | p=0.5                | %50 olasılıkla yatay çevirme            |
+| Vertical Flip   | p=0.3                | %30 olasılıkla dikey çevirme            |
+| Color Jitter    | B=0.1, C=0.1, S=0.05 | Parlaklık, kontrast, doygunluk değişimi |
+
+### 3.2 ImageNet Normalizasyonu
+
+Tüm modeller ImageNet ön eğitimli backbone kullandığı için:
+
+- **Mean:** [0.485, 0.456, 0.406]
+- **Std:** [0.229, 0.224, 0.225]
+
+---
+
+## 4. Model Mimarileri
+
+### 4.1 AutoEncoder (Reconstruction-Based)
+
+**Kavram:** Normal örnekleri yeniden yapılandırmayı öğren; anomaliler daha yüksek reconstruction error verecektir.
+
+#### Mimari
+
 ```
 Encoder:
-├── Conv2d(3→32, k=4, s=2, p=1) + BatchNorm + LeakyReLU(0.2)   → 128×128
-├── Conv2d(32→64, k=4, s=2, p=1) + BatchNorm + LeakyReLU(0.2)  → 64×64
-├── Conv2d(64→128, k=4, s=2, p=1) + BatchNorm + LeakyReLU(0.2) → 32×32
-├── Conv2d(128→256, k=4, s=2, p=1) + BatchNorm + LeakyReLU(0.2)→ 16×16
-└── Conv2d(256→256, k=4, s=2, p=1) + BatchNorm + LeakyReLU(0.2)→ 8×8 (bottleneck)
+├── Conv2d(3→32, k=4, s=2, p=1) + BatchNorm + LeakyReLU(0.2)   → H/2
+├── Conv2d(32→64, k=4, s=2, p=1) + BatchNorm + LeakyReLU(0.2)  → H/4
+├── Conv2d(64→128, k=4, s=2, p=1) + BatchNorm + LeakyReLU(0.2) → H/8
+├── Conv2d(128→256, k=4, s=2, p=1) + BatchNorm + LeakyReLU(0.2)→ H/16
+└── Conv2d(256→latent_dim, k=4, s=2, p=1) + BatchNorm + LeakyReLU(0.2) → H/32
 
-Decoder (Mirror of Encoder with ConvTranspose2d + Sigmoid output)
+Decoder (Mirror):
+├── ConvTranspose2d(latent_dim→256) + BatchNorm + ReLU
+├── ConvTranspose2d(256→128) + BatchNorm + ReLU
+├── ConvTranspose2d(128→64) + BatchNorm + ReLU
+├── ConvTranspose2d(64→32) + BatchNorm + ReLU
+└── ConvTranspose2d(32→3) + Sigmoid
 ```
 
-**V2 Improvements:**
-| Feature | V1 | V2 |
-|---------|----|----|
-| Loss Function | MSE only | MSE + SSIM (50/50 weight) |
-| Image Size | Fixed 224×224 | Dynamic 256×256 |
-| LR Scheduler | None | Cosine Annealing |
-| Early Stopping | No | Yes (patience=10) |
+#### Kayıp Fonksiyonu: MSE + SSIM
 
-**SSIM Loss Formula:**
+```python
+loss = (1 - ssim_weight) * MSE(recon, original) + ssim_weight * SSIM_Loss(recon, original)
+```
+
+**SSIM (Structural Similarity Index):**
+
 ```
 SSIM(x,y) = (2μx·μy + C1)(2σxy + C2) / ((μx² + μy² + C1)(σx² + σy² + C2))
-Loss = 1 - SSIM(reconstructed, original)
+SSIM_Loss = 1 - SSIM
 ```
 
-**Hyperparameters:**
-- Latent Dimension: 256
-- Learning Rate: 1e-3
-- Epochs: 100 (max)
-- Optimizer: Adam
-- SSIM Weight: 0.5
+#### Hiperparametreler (Grid Search)
+
+| Parametre     | Değer Aralığı   |
+| ------------- | --------------- |
+| latent_dim    | [128, 256, 512] |
+| ssim_weight   | [0.3, 0.5, 0.7] |
+| learning_rate | [1e-3, 5e-4]    |
+| epochs        | 100 (max)       |
+| optimizer     | Adam            |
 
 ---
 
-### 2.2 PatchCore (Memory Bank + K-NN)
+### 4.2 PatchCore (Memory Bank + K-NN)
 
-**Concept**: Build a memory bank of normal patch features; anomalies will be far from any stored patch.
+**Kavram:** Normal patch özelliklerinden bir bellek bankası oluştur; test sırasında en yakın komşu mesafesine göre anomali skoru hesapla.
 
-**Architecture Details:**
+#### Mimari
+
 ```
-Feature Extractor (Pretrained WideResNet50-2):
+Feature Extractor (Pretrained WideResNet50-2, Frozen):
 ├── Conv1 → BatchNorm → ReLU → MaxPool
-├── Layer1 (output: 256 channels)
-├── Layer2 (output: 512 channels) ─────┐
-└── Layer3 (output: 1024 channels) ────┤
-                                        ↓
-                              Concatenate → 1536 channels
-                                        ↓
-                              Random Projection → 512 dim
-                                        ↓
-                              Coreset Sampling → Memory Bank (2000 patches)
+├── Layer1 (256 channels)
+├── Layer2 (512 channels) ─────────────────┐
+└── Layer3 (1024 channels) ────────────────┤
+                                            ↓
+                                  Concatenate + L2 Normalize
+                                            ↓
+                                  1536 channels (multi-layer)
+                                            ↓
+                                  Sparse Random Projection → 512 dim
+                                            ↓
+                                  Coreset Sampling → Memory Bank
 ```
 
-**V2 Improvements:**
-| Feature | V1 | V2 |
-|---------|----|----|
-| Feature Layers | Layer3 only | Layer2 + Layer3 (multi-scale) |
-| Feature Dim | 1024 | 1536 (concatenated) |
-| Neighborhood Aggregation | No | Yes (3×3 avg pooling) |
-| Memory Bank Size | 1000 | 2000 |
+#### Coreset Sampling Algoritması
 
-**Coreset Sampling Algorithm:**
 ```python
-# Greedy farthest point sampling
-1. Select random initial point
-2. For each remaining slot:
-   a. Compute distance from all points to nearest selected point
-   b. Select point with maximum minimum distance
-   c. Add to selected set
+# Greedy Farthest Point Sampling
+def coreset_sample(features, k):
+    indices = [random_initial_point]
+    min_dists = np.full(len(features), np.inf)
+
+    for _ in range(k-1):
+        dists = np.linalg.norm(features - features[indices[-1]], axis=1)
+        min_dists = np.minimum(min_dists, dists)
+        min_dists[indices] = -1  # Exclude selected
+        indices.append(np.argmax(min_dists))
+
+    return features[indices]
 ```
 
-**Hyperparameters:**
-- Backbone: WideResNet50-2 (ImageNet pretrained)
-- Memory Bank Size: 2000
-- Target Dimension: 512
-- K-Neighbors: 5
-- Metric: Euclidean
+**Amaç:** Tüm normal özellikleri en iyi temsil eden alt kümeyi seçmek.
+
+#### Anomali Skoru Hesaplama
+
+```python
+distances, _ = nn_model.kneighbors(test_features)
+patch_scores = distances.mean(axis=1)  # K komşunun ortalama mesafesi
+image_score = max(patch_scores)  # En yüksek patch skoru
+```
+
+#### Hiperparametreler (Grid Search)
+
+| Parametre        | Değer Aralığı                     |
+| ---------------- | --------------------------------- |
+| memory_bank_size | [1000, 2000, 3000] veya -1 (tümü) |
+| k_neighbors      | [3, 5, 9]                         |
+| use_multi_layer  | [True, False]                     |
+| target_dim       | 512                               |
+| backbone         | wide_resnet50_2                   |
 
 ---
 
-### 2.3 SimpleNet (Feature Adaptor + Discriminator)
+### 4.3 SimpleNet (Feature Adaptor + Discriminator)
 
-**Concept**: Train a discriminator to separate adapted normal features from synthetic anomaly features.
+**Kavram:** Sentetik anomali özellikleri üreterek bir discriminator eğit.
 
-**Architecture Details:**
+#### Mimari
+
 ```
-Feature Extractor (Pretrained WideResNet50-2, frozen):
+Feature Extractor (WideResNet50-2, Frozen):
 └── Layer3 output → 1024 channels
 
 Feature Adaptor:
-└── Linear(1024→512, bias=False) + LayerNorm
+└── Linear(1024→adaptor_dim, bias=False) + LayerNorm
 
 Discriminator:
-├── Linear(512→256) + BatchNorm + LeakyReLU(0.2) + Dropout(0.1)
+├── Linear(adaptor_dim→256) + BatchNorm + LeakyReLU(0.2) + Dropout(0.1)
 ├── Linear(256→128) + BatchNorm + LeakyReLU(0.2)
-└── Linear(128→1) → Anomaly Score
+└── Linear(128→1) → Anomaly Score (sigmoid)
 ```
 
-**Anomaly Synthesis (Training Only):**
-```python
-# Multi-noise approach for diverse synthetic anomalies
-anomaly_features = normal_features + noise
-where noise ~ N(0, σ²)
-
-# Multi-noise levels (V2):
-σ ∈ {0.0075, 0.015, 0.030}  # 0.5x, 1x, 2x base std
-```
-
-**V2 Improvements:**
-| Feature | V1 | V2 |
-|---------|----|----|
-| Noise Synthesis | Single level (σ=0.015) | Multi-level (3 levels) |
-| Loss Function | Truncated L1 | Focal Loss (γ=2, α=0.25) |
-| Regularization | None | Dropout(0.1) + LayerNorm |
-| Optimizer | Adam | AdamW (weight_decay=1e-4) |
-
-**Focal Loss Formula:**
-```
-FL(pt) = -α(1-pt)^γ · log(pt)
-where pt = sigmoid(discriminator_output)
-```
-
-**Hyperparameters:**
-- Backbone: WideResNet50-2
-- Adaptor Dimension: 512
-- Base Noise Std: 0.015
-- Learning Rate: 1e-4
-- Epochs: 50 (max)
-
----
-
-## 3. Data Augmentation
-
-### 3.1 Base (No Augmentation)
-- Only resize to 256×256
-- ImageNet normalization: mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-
-### 3.2 Enhanced Augmentation
-Applied during training only:
-
-| Augmentation | Parameters |
-|--------------|------------|
-| Random Rotation | ±15° |
-| Horizontal Flip | p=0.5 |
-| Vertical Flip | p=0.3 |
-| Color Jitter | brightness=0.1, contrast=0.1, saturation=0.05 |
-
-**Rationale**: Wood defects can appear at any orientation; augmentation increases training data diversity and reduces overfitting.
-
----
-
-## 4. Results
-
-### 4.1 Performance Metrics
-
-| Model | Data | AUC-ROC | F1 Score | Accuracy | Precision | Recall |
-|-------|------|---------|----------|----------|-----------|--------|
-| **AutoEncoder** | Base | **0.8639** | 0.9118 | 0.8696 | 0.9688 | 0.8611 |
-| **AutoEncoder** | Augmented | 0.7528 | **0.9333** | **0.8913** | 0.8974 | **0.9722** |
-| PatchCore | Base | 0.6500 | 0.8611 | 0.7826 | 0.8611 | 0.8611 |
-| PatchCore | Augmented | 0.6250 | 0.8767 | 0.8043 | 0.8649 | 0.8889 |
-| SimpleNet | Base | 0.5194 | 0.6071 | 0.5217 | 0.8500 | 0.4722 |
-| SimpleNet | Augmented | 0.5833 | 0.8116 | 0.7174 | 0.8485 | 0.7778 |
-
-### 4.2 Key Findings
-
-#### AutoEncoder
-- **Best overall performer** with highest AUC-ROC (0.8639 base)
-- Augmentation trade-off: Higher recall (0.97 vs 0.86) but lower AUC-ROC
-- SSIM loss helped capture structural anomalies better than MSE alone
-
-#### PatchCore
-- Consistent performance across both settings
-- Multi-layer features (Layer2+Layer3) provided richer representations
-- Memory bank approach less sensitive to augmentation
-
-#### SimpleNet
-- **Biggest improvement from augmentation**: F1 increased from 0.61 to 0.81
-- Multi-noise synthesis helped create more realistic synthetic anomalies
-- Focal loss addressed class imbalance between normal patches and synthetic anomalies
-
-### 4.3 Base vs Augmented Analysis
-
-| Model | AUC-ROC Change | F1 Change | Recall Change |
-|-------|----------------|-----------|---------------|
-| AutoEncoder | -0.111 (↓) | +0.022 (↑) | +0.111 (↑) |
-| PatchCore | -0.025 (↓) | +0.016 (↑) | +0.028 (↑) |
-| SimpleNet | +0.064 (↑) | +0.204 (↑) | +0.306 (↑) |
-
-**Interpretation:**
-- Augmentation consistently improves **recall** (defect detection rate)
-- AUC-ROC slightly decreases for reconstruction-based methods (AutoEncoder, PatchCore) due to threshold sensitivity
-- SimpleNet benefits most from augmentation due to its discriminative learning approach
-
----
-
-## 5. Threshold Selection
-
-**Method**: Youden's J Statistic (maximizes TPR - FPR)
+#### Sentetik Anomali Üretimi (Multi-Noise)
 
 ```python
-J = TPR - FPR
-optimal_threshold = argmax(J)
+def generate_anomaly(features, base_noise_std=0.015):
+    stds = [base_noise_std * 0.5, base_noise_std * 1.0, base_noise_std * 2.0]
+    batch_size = features.shape[0] // 3
+
+    anomaly_parts = []
+    for i, std in enumerate(stds):
+        start = i * batch_size
+        end = (i + 1) * batch_size if i < 2 else features.shape[0]
+        noise = torch.randn_like(features[start:end]) * std
+        anomaly_parts.append(features[start:end] + noise)
+
+    return torch.cat(anomaly_parts, dim=0)
 ```
 
-| Model | Data | Optimal Threshold |
-|-------|------|-------------------|
-| AutoEncoder | Base | 0.480 |
-| AutoEncoder | Augmented | 0.029 |
-| PatchCore | Base | 0.074 |
-| PatchCore | Augmented | 0.087 |
-| SimpleNet | Base | 0.390 |
-| SimpleNet | Augmented | 0.223 |
+#### Focal Loss
+
+```python
+def focal_loss(pred, target, gamma=2.0, alpha=0.25):
+    bce = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
+    pt = torch.exp(-bce)
+    return (alpha * (1 - pt) ** gamma * bce).mean()
+```
+
+**Avantaj:** Class imbalance durumunda zor örneklere daha fazla ağırlık verir.
+
+#### Hiperparametreler (Grid Search)
+
+| Parametre       | Değer Aralığı             |
+| --------------- | ------------------------- |
+| noise_std       | [0.01, 0.015, 0.02]       |
+| adaptor_dim     | [256, 512]                |
+| use_multi_noise | [True, False]             |
+| learning_rate   | 1e-4                      |
+| epochs          | 50 (max)                  |
+| optimizer       | AdamW (weight_decay=1e-4) |
 
 ---
 
-## 6. Technical Implementation Details
+### 4.4 EfficientAD (Student-Teacher + AutoEncoder)
 
-### 6.1 Training Configuration
+**Kavram:** Teacher-student knowledge distillation ile birlikte lightweight autoencoder kullanarak hem global hem de lokal anomalileri tespit et.
+
+#### Mimari
+
+```
+Teacher Network (ResNet18, Frozen):
+├── Conv1 → BatchNorm → ReLU → MaxPool
+├── Layer1, Layer2, Layer3
+└── Output: Teacher Features (256 channels)
+
+Student Network (ResNet18, Trainable):
+├── Same architecture as Teacher
+├── + Student Head:
+│   └── Conv2d(256→student_dim→256, k=1)
+└── Output: Student Features
+
+Lightweight AutoEncoder:
+├── Encoder:
+│   ├── Conv2d(256→autoencoder_dim, k=3, s=2)
+│   └── Conv2d(autoencoder_dim→autoencoder_dim/2, k=3, s=2)
+└── Decoder:
+    ├── ConvTranspose2d(autoencoder_dim/2→autoencoder_dim, k=4, s=2)
+    └── ConvTranspose2d(autoencoder_dim→256, k=4, s=2)
+```
+
+#### Kayıp Fonksiyonları
 
 ```python
-Config:
-  image_size: (256, 256)
-  batch_size: 8
-  early_stopping_patience: 10
-  
-  # AutoEncoder
-  ae_latent_dim: 256
-  ae_learning_rate: 1e-3
-  ae_epochs: 100
-  ae_ssim_weight: 0.5
-  
-  # PatchCore
-  pc_backbone: "wide_resnet50_2"
-  pc_memory_bank_size: 2000
-  pc_target_dim: 512
-  pc_k_neighbors: 5
-  pc_use_multi_layer: True
-  pc_aggregate_neighbors: True
-  
-  # SimpleNet
-  sn_backbone: "wide_resnet50_2"
-  sn_adaptor_dim: 512
-  sn_noise_std: 0.015
-  sn_learning_rate: 1e-4
-  sn_epochs: 50
-  sn_use_multi_noise: True
+# Student-Teacher Distillation Loss
+st_loss = F.mse_loss(student_features, teacher_features.detach())
+
+# AutoEncoder Reconstruction Loss
+ae_loss = F.mse_loss(autoencoder_output, teacher_features.detach())
+
+# Combined Loss
+total_loss = st_loss + ae_loss
 ```
 
-### 6.2 Inference Pipeline
+#### Anomali Skoru Hesaplama
+
+```python
+# Student-Teacher difference (global anomalies)
+st_diff = ((teacher_features - student_features) ** 2).mean(dim=1)
+
+# AutoEncoder difference (local anomalies)
+ae_diff = ((teacher_features - ae_output) ** 2).mean(dim=1)
+
+# Combined anomaly map
+anomaly_map = 0.5 * st_diff + 0.5 * ae_diff
+```
+
+#### Hiperparametreler (Grid Search)
+
+| Parametre       | Değer Aralığı   |
+| --------------- | --------------- |
+| student_dim     | [256, 384, 512] |
+| autoencoder_dim | [256, 384, 512] |
+| backbone        | resnet18        |
+| learning_rate   | 1e-4            |
+| epochs          | 70 (max)        |
+| weight_decay    | 1e-5            |
+
+---
+
+## 5. Eğitim Konfigürasyonu
+
+### 5.1 Genel Ayarlar
+
+```python
+BaseConfig:
+    environment: "local"  # veya "colab"
+    dataset_name: "baseline_512"
+    image_size: (512, 512)
+    batch_size: 8
+    augmentation_type: "enhanced"
+    early_stopping_patience: 10
+```
+
+### 5.2 Early Stopping
+
+```python
+if avg_loss < best_loss:
+    best_loss = avg_loss
+    patience = 0
+else:
+    patience += 1
+
+if patience >= early_stopping_patience:
+    break  # Eğitimi durdur
+```
+
+### 5.3 Learning Rate Scheduler
+
+```python
+# Cosine Annealing LR
+scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
+```
+
+---
+
+## 6. Değerlendirme Metrikleri
+
+### 6.1 Kullanılan Metrikler
+
+| Metrik    | Formül                | Açıklama                     |
+| --------- | --------------------- | ---------------------------- |
+| AUC-ROC   | Area Under ROC Curve  | Sınıflandırma performansı    |
+| AUPRO     | Area Under PRO Curve  | Piksel seviyesi lokalizasyon |
+| F1 Score  | 2×(P×R)/(P+R)         | Precision-Recall dengesi     |
+| Accuracy  | (TP+TN)/(TP+TN+FP+FN) | Genel doğruluk               |
+| Precision | TP/(TP+FP)            | Pozitif tahmin doğruluğu     |
+| Recall    | TP/(TP+FN)            | Gerçek pozitifleri yakalama  |
+
+### 6.2 Optimal Eşik Seçimi (Youden's J)
+
+```python
+def find_optimal_threshold(y_true, y_scores):
+    fpr, tpr, thresholds = roc_curve(y_true, y_scores)
+    j_scores = tpr - fpr  # Youden's J statistic
+    optimal_idx = np.argmax(j_scores)
+    return thresholds[optimal_idx]
+```
+
+### 6.3 AUPRO (Approximated)
+
+```python
+def calculate_aupro_approximated(anomaly_maps, labels, num_thresholds=100):
+    # Ground truth mask olmadığı için yaklaşık hesaplama
+    thresholds = np.linspace(0, 1, num_thresholds)
+    pro_scores = []
+
+    for thresh in thresholds:
+        defect_coverage = np.mean([np.mean(m > thresh) for m in defect_maps])
+        good_fp_rate = np.mean([np.mean(m > thresh) for m in good_maps])
+
+        # F1-like PRO score
+        pro_score = 2 * defect_coverage * (1 - good_fp_rate) /
+                    (defect_coverage + (1 - good_fp_rate) + 1e-8)
+        pro_scores.append(pro_score)
+
+    return np.trapz(pro_scores, thresholds)
+```
+
+---
+
+## 7. Grid Search ve Deney Sonuçları
+
+### 7.1 Grid Search Parametreleri
+
+**Full Mode Kombinasyonları:**
+
+- AutoEncoder: 3 × 3 × 2 = 18 kombinasyon
+- PatchCore: 3 × 3 × 2 = 18 kombinasyon
+- SimpleNet: 3 × 2 × 2 = 12 kombinasyon
+- EfficientAD: 3 × 3 × 1 = 9 kombinasyon
+- **Toplam:** 57 deney
+
+### 7.2 Deney Sonuçları
+
+<!-- RESULTS_TABLE_START -->
+
+> ⚠️ **Not:** Bu bölüm, `run_full_experiments()` çalıştırıldıktan sonra `experiment_results.csv` dosyasından güncellenmelidir.
+
+| Model | Experiment | AUC-ROC | AUPRO | F1 Score | Accuracy | Precision | Recall |
+| ----- | ---------- | ------- | ----- | -------- | -------- | --------- | ------ |
+| ...   | ...        | ...     | ...   | ...      | ...      | ...       | ...    |
+
+<!-- RESULTS_TABLE_END -->
+
+### 7.3 Model Bazlı En İyi Sonuçlar
+
+<!-- BEST_RESULTS_START -->
+
+> ⚠️ **Not:** Bu bölüm deney sonuçlarından güncellenmelidir.
+
+**AutoEncoder:**
+
+- Best Config: latent_dim=..., ssim_weight=..., lr=...
+- AUC-ROC: ...
+- F1 Score: ...
+
+**PatchCore:**
+
+- Best Config: memory_bank=..., k_neighbors=..., multi_layer=...
+- AUC-ROC: ...
+- F1 Score: ...
+
+**SimpleNet:**
+
+- Best Config: noise_std=..., adaptor_dim=..., multi_noise=...
+- AUC-ROC: ...
+- F1 Score: ...
+
+**EfficientAD:**
+
+- Best Config: student_dim=..., autoencoder_dim=...
+- AUC-ROC: ...
+- F1 Score: ...
+
+<!-- BEST_RESULTS_END -->
+
+---
+
+## 8. Görselleştirmeler
+
+### 8.1 Üretilen Çıktılar
+
+| Dosya                      | Açıklama                               |
+| -------------------------- | -------------------------------------- |
+| `experiment_results.csv`   | Tüm deney sonuçları                    |
+| `confusion_matrices.png`   | Model bazlı confusion matrix           |
+| `roc_curves.png`           | ROC eğrileri karşılaştırması           |
+| `score_distributions.png`  | Anomali skor dağılımları               |
+| `metrics_comparison.png`   | Metrik karşılaştırma bar chart         |
+| `best_config.json`         | En iyi model konfigürasyonu            |
+| `summary_report.txt`       | Metin tabanlı özet rapor               |
+| `heatmaps/{Model}/good/`   | İyi örneklerin anomali haritaları      |
+| `heatmaps/{Model}/defect/` | Defektli örneklerin anomali haritaları |
+
+### 8.2 Heatmap Görselleştirme
+
+Her test görüntüsü için üçlü görselleştirme:
+
+1. **Orijinal Görüntü**
+2. **Anomali Haritası** (JET colormap)
+3. **Overlay** (Orijinal + Heatmap)
+
+---
+
+## 9. Teknik Implementasyon Detayları
+
+### 9.1 GPU Kullanımı
+
+```python
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+# Model ve tensörler GPU'ya taşınır
+model.to(device)
+batch = batch.to(device)
+```
+
+### 9.2 Inference Pipeline
 
 ```
-Input Image (any size)
+Input Image
     ↓
-Resize to 256×256
+Resize to target_size (512×512)
     ↓
 ImageNet Normalization
     ↓
-Model Inference → Anomaly Score (per patch)
+Model Forward Pass → Patch-level Anomaly Scores
     ↓
-Image-level Score = max(patch_scores)
+Image Score = max(patch_scores)
     ↓
-Compare with Threshold
+Anomaly Map → Upsample to original size (256×256)
     ↓
-Classification: Good (0) or Defect (1)
+Score Normalization: (score - min) / (max - min)
+    ↓
+Threshold Comparison → Classification
 ```
 
-### 6.3 Anomaly Map Generation
+### 9.3 Türkçe Karakter Desteği
 
-All models produce pixel-level anomaly maps:
-- **AutoEncoder**: Per-pixel reconstruction error
-- **PatchCore**: K-NN distance per patch, upsampled to image size
-- **SimpleNet**: Discriminator score per patch, upsampled to image size
+```python
+# Dosya yükleme (Windows uyumlu)
+image_array = np.fromfile(image_path, dtype=np.uint8)
+image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
 
----
-
-## 7. Conclusions
-
-1. **AutoEncoder** is the most reliable model for this dataset with highest AUC-ROC
-2. **Data augmentation** significantly improves recall at the cost of slightly lower AUC-ROC
-3. **SSIM loss** provides structural awareness beyond pixel-level MSE
-4. **Multi-layer features** in PatchCore improve representation quality
-5. **Multi-noise synthesis** and **Focal loss** make SimpleNet more robust
-
-### Recommendations
-
-- For **high recall requirements** (catch all defects): Use AutoEncoder with augmentation
-- For **balanced performance**: Use AutoEncoder without augmentation
-- For **deployment**: Consider ensemble of AutoEncoder + PatchCore
+# Dosya kaydetme
+_, encoded = cv2.imencode('.bmp', cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+encoded.tofile(output_path)
+```
 
 ---
 
-## 8. Files Generated
+## 10. Sonuçlar ve Öneriler
 
-| File | Description |
-|------|-------------|
-| `results_v2.csv` | All metrics in tabular format |
-| `roc_base.png` | ROC curves without augmentation |
-| `roc_aug.png` | ROC curves with augmentation |
-| `cm_base.png` | Confusion matrices without augmentation |
-| `cm_aug.png` | Confusion matrices with augmentation |
-| `scores_base.png` | Score distributions without augmentation |
-| `scores_aug.png` | Score distributions with augmentation |
+### 10.1 Temel Bulgular
+
+<!-- CONCLUSIONS_START -->
+
+> ⚠️ **Not:** Bu bölüm deney sonuçlarına göre güncellenmelidir.
+
+1. **En iyi performans:** ...
+2. **Veri artırma etkisi:** ...
+3. **Çözünürlük etkisi (256 vs 512):** ...
+4. **Model karşılaştırması:** ...
+
+<!-- CONCLUSIONS_END -->
+
+### 10.2 Öneriler
+
+| Senaryo            | Önerilen Model | Gerekçe                |
+| ------------------ | -------------- | ---------------------- |
+| Yüksek Recall      | ...            | Tüm defektleri yakala  |
+| Dengeli Performans | ...            | AUC-ROC ve F1 dengesi  |
+| Hızlı Inference    | ...            | Düşük latency          |
+| Lokalizasyon       | ...            | Piksel seviyesi tespit |
 
 ---
 
-## Appendix: Code Reference
+## Appendix: Dosya Referansları
 
-Main implementation file: `compare_anomaly_models_v2.py`
+### A.1 Ana Kod Dosyaları
 
-Key classes:
-- `ConvAutoEncoderV2`: AutoEncoder architecture
-- `SSIMLoss`: Structural similarity loss
+| Dosya                          | Açıklama                            |
+| ------------------------------ | ----------------------------------- |
+| `compare_anomaly_models_v3.py` | Ana deney framework (1745 satır)    |
+| `data_processing_script.py`    | Veri ön işleme pipeline (490 satır) |
+
+### A.2 Sınıf ve Fonksiyon Referansları
+
+**Configuration Classes:**
+
+- `BaseConfig`: Temel konfigürasyon
+- `AutoEncoderConfig`: AE hiperparametreleri
+- `PatchCoreConfig`: PC hiperparametreleri
+- `SimpleNetConfig`: SN hiperparametreleri
+- `EfficientADConfig`: EAD hiperparametreleri
+
+**Model Classes:**
+
+- `ConvAutoEncoder`: AE mimarisi (nn.Module)
+- `AutoEncoderModel`: AE training/inference wrapper
 - `PatchCoreModel`: Memory bank + K-NN
 - `SimpleNetModel`: Feature adaptor + discriminator
-- `WoodDataset`: Dataset with augmentation support
+- `EfficientADModel`: Student-teacher + autoencoder
+
+**Utility Classes:**
+
+- `SSIMLoss`: Structural similarity loss
+- `WoodDataset`: Dataset + augmentation
+- `ExperimentRunner`: Grid search + visualization
+- `ImagePreprocessor`: Veri ön işleme
+
+---
+
+**Rapor Sonu**

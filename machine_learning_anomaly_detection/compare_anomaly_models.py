@@ -75,7 +75,7 @@ class BaseConfig:
     """Base configuration"""
     environment: str = "local"
     dataset_name: str = "wood_mvtec"
-    image_size: Tuple[int, int] = (256, 256)  # Dataset çözünürlüğü ile eşleşmeli
+    image_size: Tuple[int, int] = (512, 512)  # Dataset çözünürlüğü ile eşleşmeli
     batch_size: int = 8
     augmentation_type: str = "enhanced"
     early_stopping_patience: int = 10
@@ -1722,7 +1722,7 @@ def main():
     print("="*80)
     
     # Parse arguments
-    mode = "full"  # default
+    mode = "quick"  # default
     model = None
     
     for arg in sys.argv[1:]:
