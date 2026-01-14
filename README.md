@@ -1,4 +1,4 @@
-# 🎓 OGU Yüksek Lisans - 2. Dönem Çalışmaları
+# OGU Yüksek Lisans - 2. Dönem Çalışmaları
 
 <div align="center">
 
@@ -13,22 +13,22 @@
 
 ---
 
-## 📖 Hakkında
+## Hakkında
 
 Bu repo, Osmangazi Üniversitesi Bilgisayar Mühendisliği Yüksek Lisans Programı 2. dönem derslerinin kod geliştirmelerini, projeleri ve çalışmalarını içermektedir. Her ders için ayrı klasörler bulunmakta ve ilgili projelerin detaylı dokümantasyonu, kaynak kodları ve sonuçları bu repo üzerinde yönetilmektedir.
 
-## 🎯 Amaç ve Kapsam
+## Amaç ve Kapsam
 
 Bu repository'nin temel amaçları:
-- 📚 Yüksek lisans derslerinde geliştirilen tüm kod projelerini merkezi bir yerde toplamak
-- 🔬 Makine öğrenimi, veri madenciliği ve istatistiksel analiz konularında pratik deneyim kazanmak
-- 📊 Gerçek dünya veri setleri üzerinde çalışarak akademik bilgiyi uygulamaya aktarmak
-- 🚀 Modern veri bilimi ve makine öğrenimi araçlarını kullanarak proje geliştirmek
-- 📝 Detaylı dokümantasyon ile projelerin anlaşılabilir ve tekrar üretilebilir olmasını sağlamak
+- Yüksek lisans derslerinde geliştirilen tüm kod projelerini merkezi bir yerde toplamak
+- Makine öğrenimi, veri madenciliği ve istatistiksel analiz konularında pratik deneyim kazanmak
+- Gerçek dünya veri setleri üzerinde çalışarak akademik bilgiyi uygulamaya aktarmak
+- Modern veri bilimi ve makine öğrenimi araçlarını kullanarak proje geliştirmek
+- Detaylı dokümantasyon ile projelerin anlaşılabilir ve tekrar üretilebilir olmasını sağlamak
 
-## 📗 Dersler ve Projeler
+## Dersler ve Projeler
 
-### 🤖 Machine Learning and Anomaly Detection
+### Machine Learning and Anomaly Detection
 **Öğretim Elemanı:** Doç. Dr. Eyüp ÇİNAR
 
 **Proje:** Wood Anomaly Detection - Ahşap Yüzey Defekt Tespiti
@@ -42,17 +42,17 @@ Derin öğrenme tabanlı anomali tespit sistemi geliştirme. Proje, cold-start a
 - EfficientAD (Student-Teacher + AutoEncoder)
 
 **Teknik Özellikler:**
-- ✅ Çoklu çözünürlük desteği (256×256, 512×512)
-- ✅ Grid search ile hiperparametre optimizasyonu
-- ✅ Kapsamlı veri ön işleme pipeline
-- ✅ GPU hızlandırma desteği
-- ✅ Otomatik model değerlendirme ve görselleştirme
+- Çoklu çözünürlük desteği (256×256, 512×512)
+- Grid search ile hiperparametre optimizasyonu
+- Kapsamlı veri ön işleme pipeline
+- GPU hızlandırma desteği
+- Otomatik model değerlendirme ve görselleştirme
 
-[📂 Proje Detayları](/machine_learning_anomaly_detection) | [📄 Teknik Rapor](/machine_learning_anomaly_detection/readme.md)
+[Proje Detayları](/machine_learning_anomaly_detection) | [Teknik Rapor](/machine_learning_anomaly_detection/readme.md)
 
 ---
 
-### 💎 Data Mining
+### Data Mining
 **Öğretim Elemanı:** Doç. Dr. Efnan ŞORA GÜNAL
 
 **Proje:** UCI Heart Disease Dataset - Kalp Hastalığı Tahmini
@@ -73,17 +73,17 @@ UCI Machine Learning Repository'deki kalp hastalığı veri setini kullanarak ka
 - XGBoost
 
 **Teknik Özellikler:**
-- ✅ İki farklı senaryo ile karşılaştırmalı analiz
-- ✅ SMOTE ile veri dengeleme
-- ✅ Optuna ile hiperparametre optimizasyonu
-- ✅ Feature importance analizi
-- ✅ Kapsamlı istatistiksel görselleştirme
+- İki farklı senaryo ile karşılaştırmalı analiz
+- SMOTE ile veri dengeleme
+- Optuna ile hiperparametre optimizasyonu
+- Feature importance analizi
+- Kapsamlı istatistiksel görselleştirme
 
-[📂 Proje Detayları](/data_mining) | [📄 Proje Dokümantasyonu](/data_mining/README.md)
+[Proje Detayları](/data_mining) | [Proje Dokümantasyonu](/data_mining/README.md)
 
 ---
 
-### 📊 Data Analysis and Statistics
+### Data Analysis and Statistics
 **Öğretim Elemanı:** Dr. Öğr. Üyesi Sinem BOZKURT KESER
 
 **Proje:** Online Shoppers Intention Dataset - İstatistiksel Analiz ve Veri Görselleştirme
@@ -91,16 +91,16 @@ UCI Machine Learning Repository'deki kalp hastalığı veri setini kullanarak ka
 Veri analizi ve istatistik teknikleri kullanılarak online alışveriş davranışlarının incelenmesi ve yorumlanması.
 
 **Çalışma Konuları:**
-- 📈 Tanımlayıcı istatistikler
-- 📊 Veri görselleştirme teknikleri
-- 🔍 Keşifsel veri analizi (EDA)
-- 📉 İstatistiksel testler ve çıkarımlar
+- Tanımlayıcı istatistikler
+- Veri görselleştirme teknikleri
+- Keşifsel veri analizi (EDA)
+- İstatistiksel testler ve çıkarımlar
 
-[📂 Proje Detayları](/data_analysis) | [📄 Proje Dokümantasyonu](/data_analysis/README.md)
+[Proje Detayları](/data_analysis) | [Proje Dokümantasyonu](/data_analysis/README.md)
 
 ---
 
-## 🛠️ Genel Kurulum ve Gereksinimler
+## Genel Kurulum ve Gereksinimler
 
 ### Önkoşullar
 - Python 3.8+
@@ -128,9 +128,9 @@ pip install -r requirements.txt
 4. **Projeyi çalıştırın:**
 Her projenin kendi README dosyasında detaylı çalıştırma talimatları bulunmaktadır.
 
-> 💡 **Not:** Her proje klasörünün kendi `requirements.txt` dosyası bulunmaktadır. İlgili proje dizinindeki kurulum talimatlarını takip edin.
+> **Not:** Her proje klasörünün kendi `requirements.txt` dosyası bulunmaktadır. İlgili proje dizinindeki kurulum talimatlarını takip edin.
 
-## 📁 Repository Yapısı
+## Repository Yapısı
 
 ```
 ogu-master-s2/
@@ -167,7 +167,7 @@ ogu-master-s2/
     └── results/                           # Analiz sonuçları
 ```
 
-## 🔧 Kullanılan Teknolojiler
+## Kullanılan Teknolojiler
 
 ### Programlama Dilleri
 - ![Python](https://img.shields.io/badge/Python-3776AB?style=flat&logo=python&logoColor=white)
@@ -189,7 +189,7 @@ ogu-master-s2/
 ### Diğer Araçlar
 - OpenCV, imbalanced-learn, Optuna
 
-## 📊 Projelerden Örnekler
+## Projelerden Örnekler
 
 ### Machine Learning - Anomaly Detection Heatmap Örnekleri
 Ahşap yüzey defekt tespiti için oluşturulan anomali haritaları modellerin defektleri başarıyla lokalize edebildiğini göstermektedir.
@@ -200,29 +200,9 @@ Ahşap yüzey defekt tespiti için oluşturulan anomali haritaları modellerin d
 ### Data Analysis - İstatistiksel Görselleştirmeler
 Online alışveriş veri seti üzerinde yapılan detaylı istatistiksel analizler ve görselleştirmeler.
 
-## 🤝 Katkıda Bulunma
+## Katkıda Bulunma
 
 Bu bir akademik proje repository'sidir. Önerileriniz ve geri bildirimleriniz için:
 1. Issue açabilirsiniz
 2. Pull request gönderebilirsiniz
 3. Doğrudan iletişime geçebilirsiniz
-
-## 📄 Lisans
-
-Bu proje eğitim amaçlıdır ve akademik kullanım içindir.
-
-## 👤 İletişim
-
-**Repository Sahibi:** Pilestin  
-**Kurum:** Osmangazi Üniversitesi  
-**Program:** Bilgisayar Mühendisliği Yüksek Lisans
-
----
-
-<div align="center">
-
-**⭐ Projeyi beğendiyseniz yıldız vermeyi unutmayın! ⭐**
-
-Made with ❤️ for academic excellence
-
-</div>
